@@ -37,8 +37,7 @@ Table of Contents:
 
 To develop the Python code in this repository you will need:
 
-1. Python 3.8 or higher. We recommend [mise](https://github.com/jdx/mise) if you would like to run more than one version
-   of Python on the same system. When running unit tests against all supported Python versions, for instance.
+1. Python 3.8 or higher.
 2. The [hatch](https://github.com/pypa/hatch) package installed (`pip install --upgrade hatch`) into your Python environment.
 
 You can develop on a Linux, MacOS, or Windows workstation, but you may find that some of the support scripting is specific to
@@ -78,26 +77,21 @@ process along the lines of the following as a starting point:
    Iteratively improve your implementation until all unit tests pass. (See [Unit tests](#unit-tests))
 3. Add integration tests for your changes if applicable. Ensure that all integration tests pass.
    Iteratively improve your implementation until all integration and unit tests pass. (See [Integration tests](#integration-tests))
-4. Add Squish GUI tests for your changes if applicable. Ensure that all Squish GUI tests pass. (See [Squish GUI tests](#squish-tests))
 
 Once you are satisfied with your code, and all relevant tests pass, then run `hatch run fmt` to fix up the formatting of
 your code and post your pull request.
 
-Note: Hatch uses [environments](https://hatch.pypa.io/1.12/environment/) to isolate the Python development workspace
+Note: Hatch uses [environments](https://hatch.pypa.io/1.16/environment/) to isolate the Python development workspace
 for this package from your system or virtual environment Python. If your build/test run is not making sense, then
 sometimes pruning (`hatch env prune`) all of these environments for the package can fix the issue.
 
 ## Documentation
 
-Work-in-progress documentation for the Deadline Cloud client library is in progress in the [docs](docs/index.html) directory.
+Work-in-progress documentation for the Deadline Cloud job attachments is in progress in the [docs](docs/index.html) directory.
 Documentation is written in Markdown using [Material for MkDocs](https://squidfunk.github.io/mkdocs-material/).
 You can run the command `hatch run docs:serve` to start a server for viewing the documentation on localhost. When the command
 starts, it prints the URL for viewing the docs locally, and will automatically update them when the `mkdocs.yml` configuration
 or various markdown files are modified. The `hatch run docs:build` will build the documentation to static html content.
-
-### Code Organization
-
-Please see [code organization](docs/code_reference/code_organization.md).
 
 ## Testing
 
@@ -113,7 +107,6 @@ The tests for this package have three forms:
    without requiring an AWS account.
 2. Integration tests - Tests that ensure that the implementation behaves as expected when run in a real environment.
    Ensuring that code properly interacts as expected with a real Amazon S3 bucket, for instance.
-3. Squish GUI Submitter tests - Tests that verify the Deadline GUI using Squish automated framework. Squish tests require a license.
 
 ### Writing Tests
 
@@ -141,9 +134,6 @@ You can run unit tests by running:
 
 * `hatch run test` - To run the unit tests with your default Python runtime.
 * `hatch run all:test` - To run the unit tests with all of the supported Python runtime versions that you have installed.
-
-Notes:
-* If you are running unit tests on Linux, you may encounter errors such as `INTERNALERROR> ImportError: libEGL.so.1: cannot open shared object file: No such file or directory`. This is because some Qt dependencies are missed on Linux. Please install these [Qt dependencies](https://github.com/aws-deadline/.github/blob/mainline/.github/workflows/reusable_python_build.yml#L46-L49) to resolve this issue.
 
 #### Running Docker-based Unit Tests
 
@@ -204,17 +194,6 @@ Notes:
      NOT open the bucket up to the world for reading/writing!
   3. `export INTEG_TEST_JA_CROSS_ACCOUNT_BUCKET=<your-bucket-name-in-the-second-account>`
   4. Run the integration tests.
-* AWS Developers note: If testing with a non-production deployment of AWS Deadline Cloud then you will have to
-define the `AWS_ENDPOINT_URL_DEADLINE` environment variable to the non-production endpoint URL. For example,
-production endpoints look like: `export AWS_ENDPOINT_URL_DEADLINE="https://deadline.$AWS_DEFAULT_REGION.amazonaws.com"`
-
-### Squish GUI Submitter Tests
-
-Squish GUI tests are located under the `test/squish` directory of this repository. New tests can be added for the Deadline GUI when necessary (ie: new functionality is introduced and a test can be added for coverage, or existing functionality is modified). When changes are made, Squish automated tests should be run to ensure changes are not breaking Deadline CLI and GUI functionality.
-
-#### Running Squish GUI Submitter Tests
-
-A separate ReadMe for developing/running Squish GUI tests is located in the `test/squish` directory. Please refer to [test/squish/SQUISH_README.md](./test/squish/SQUISH_README.md) on full instructions to use the automated tests. Note that a Squish license is required in order to run the tests. Currently, you may either have your own Squish license or you may file a [pull request](https://help.github.com/articles/creating-a-pull-request/) to the Deadline Cloud team to run or add any tests against any changes to be committed. Please perform any necessary manual tests prior to submitting any changes, in addition to making sure at least a minimal render job test passes.
 
 ## Changelog Guidelines
 
@@ -340,7 +319,7 @@ from typing import Dict as _Dict
 
 Library dependencies are Python packages required to build and run the Deadline Cloud Python project. Dependencies are specified in the `dependencies` section of `pyproject.toml`.
 
-The Deadline Cloud library is designed to be integrated into third-party applications that have bespoke and customized deployment environments. Adding dependencies will increase the chance of library version conflicts and incompatabilities. Please evaluate the addition of each new dependency.
+The Deadline Cloud job attachments library is designed to be integrated into third-party applications that have bespoke and customized deployment environments. Adding dependencies will increase the chance of library version conflicts and incompatabilities. Please evaluate the addition of each new dependency.
 
 We try to minimize the number of dependencies required to build and run Deadline Cloud. When contributing changes, please consider the following.
 
@@ -366,120 +345,4 @@ We try to minimize the number of dependencies required to build and run Deadline
 #### Licensing
 
 *   Please ensure the license of the dependency is compatible with the distribution license of this library.
-*   Please attribute dependencies in https://github.com/aws-deadline/deadline-cloud/blob/mainline/THIRD_PARTY_LICENSES.
-
-### Qt and Calling AWS (including AWS Deadline Cloud) APIs
-
-> TL;DR Never call an AWS API from the main Qt event loop. Always run it in a separate thread,
-> and use a Signal/Slot to send the result back to GUI widget that needs an update. The code
-> in the separate thread should watch a boolean flag indicating whether to abandon its work.
-
-AWS APIs, while often quick, can be very slow sometimes. When calling to a distant region,
-they can consistently have very high latency.
-
-In Qt, event handling happens in the process's main thread that is running an event
-loop. If code performs a slow operation, such as calling an AWS API, that blocks all
-interactivity with the GUI.
-
-We can maintain GUI interactivity by running these slow operations in a separate thread.
-If the separate thread, however, directly modifies the GUI, this can produce crashes or
-undefined behavior. Therefore, the only way the results of these operations should be consumed
-is by emitting a Qt Signal from the thread, and consuming it in the Widget.
-
-Another detail is that threads need to finish running before the process can exit. If an
-operation in a thread continues indefinitely, this will block program exit, so it should watch
-for a signal from the application.
-
-If interacting with the GUI can start multiple background threads, you should also track which
-is the latest, so the code only applies the result of the newest operation.
-
-See `deadline_config_dialog.py` for some examples that do all of the above.
-
-### Pattern 1: Simple Async Operations (Recommended)
-
-For simple fetch-and-display operations, use `AsyncTaskRunner`:
-
-```python
-from deadline.client.ui.controllers import AsyncTaskRunner
-
-class MyCustomWidget(QWidget):
-    def __init__(self, ...):
-        self._runner = AsyncTaskRunner(self)
-        self._runner.task_error.connect(self._on_error, Qt.QueuedConnection)
-
-    def start_the_refresh(self):
-        self.result_widget.set_refreshing_status(True)
-        self._runner.run(
-            operation_key="my_refresh",
-            fn=self._fetch_data,
-            on_success=self._handle_result,
-            on_error=self._handle_error,
-        )
-
-    def _fetch_data(self):
-        # This runs in background thread
-        return boto3_client.potentially_expensive_api(...)
-
-    def _handle_result(self, result):
-        self.result_widget.set_refreshing_status(False)
-        self.result_widget.set_message(result)
-
-    def _handle_error(self, error):
-        self.result_widget.set_refreshing_status(False)
-        QMessageBox.warning(self, "Error", str(error))
-```
-
-### Pattern 2: Long-Running Operations with Progress
-
-For complex operations with progress callbacks, use a `QThread` subclass:
-
-```python
-from qtpy.QtCore import QThread, Signal, Qt
-
-class MyWorker(QThread):
-    progress = Signal(int, str)  # percent, message
-    succeeded = Signal(object)
-    failed = Signal(BaseException)
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._canceled = False
-
-    def cancel(self):
-        self._canceled = True
-
-    def run(self):
-        try:
-            for i, item in enumerate(items):
-                if self._canceled:
-                    return
-                self.progress.emit(i * 100 // len(items), f"Processing {item}")
-                process(item)
-            self.succeeded.emit(result)
-        except Exception as e:
-            if not self._canceled:
-                self.failed.emit(e)
-
-
-class MyCustomWidget(QWidget):
-    def __init__(self, ...):
-        self._worker = MyWorker(self)
-        self._worker.progress.connect(self._on_progress, Qt.QueuedConnection)
-        self._worker.succeeded.connect(self._on_success, Qt.QueuedConnection)
-        self._worker.failed.connect(self._on_error, Qt.QueuedConnection)
-
-    def start_the_operation(self):
-        self._worker.start()
-
-    def closeEvent(self, event):
-        if self._worker.isRunning():
-            self._worker.cancel()
-            self._worker.wait()
-        super().closeEvent(event)
-```
-
-# Profiling in Deadline Cloud
-
-Instead of runnning a deadline command as `deadline ...` run `pyinstrument -r html -m deadline ...`.
-
-This will profile the current `deadline` command and open the results in an interactive window.
+*   Please attribute dependencies in https://github.com/aws-deadline/deadline-cloud-job-attachments/blob/mainline/THIRD_PARTY_LICENSES.

@@ -3,8 +3,8 @@ requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
-name = "deadline"
-description = "Multi-purpose library and command line tool that implements functionality to support applications using AWS Deadline Cloud."
+name = "deadline-job-attachments"
+description = "Library that implements functionality to support applications using AWS Deadline Cloud."
 authors = [{ name = "Amazon Web Services" }]
 dynamic = ["version"]
 readme = "README.md"
@@ -27,7 +27,6 @@ classifiers = [
   "Operating System :: MacOS",
   "License :: OSI Approved :: Apache Software License",
   "Intended Audience :: Developers",
-  "Intended Audience :: End Users/Desktop",
   "Topic :: Software Development :: Libraries",
 ]
 
@@ -37,36 +36,15 @@ classifiers = [
 dependencies = [
   "boto3 >= 1.42.29; python_version >= '3.9'",
   "boto3 >= 1.36.8; python_version < '3.9'",
-  # Click 8.2 dropped python 3.8/3.9 support
-  "click >= 8.1.7",
-  "pyyaml >= 6.0",
-  # Job Attachments
   "typing_extensions >= 4.8",
   "xxhash >= 3.4,< 3.7",
   "pywin32 >= 307; sys_platform == 'win32'",
-  "QtPy == 2.4.*",
   "psutil >= 7.0.0"
 ]
 
 [project.urls]
-Homepage = "https://github.com/aws-deadline/deadline-cloud"
-Source = "https://github.com/aws-deadline/deadline-cloud"
-
-[project.optional-dependencies]
-gui = [
-  # If the version changes, update the version in deadline/client/ui/__init__.py
-  "PySide6-essentials >= 6.6,< 6.11",
-]
-mcp = [
-  "mcp >= 1.13.0",
-]
-
-[project.scripts]
-deadline = "deadline.client.cli:main"
-
-[project.gui-scripts]
-deadline-dev-gui = "deadline.client.cli.deadline_dev_gui_main:main"
-deadlinew = "deadline.client.cli:main"
+Homepage = "https://github.com/aws-deadline/deadline-cloud-job-attachments"
+Source = "https://github.com/aws-deadline/deadline-cloud-job-attachments"
 
 [tool.hatch.build]
 artifacts = ["*_version.py"]
@@ -84,7 +62,7 @@ version-file = "_version.py"
 path = "hatch_custom_hook.py"
 
 [tool.hatch.build.hooks.custom.copy_version_py]
-destinations = ["src/deadline/client", "src/deadline/job_attachments"]
+destinations = ["src/deadline/job_attachments"]
 
 [tool.hatch.build.targets.sdist]
 include = ["src/*", "hatch_custom_hook.py", "THIRD_PARTY_LICENSES"]
@@ -109,13 +87,7 @@ explicit_package_bases = true
 mypy_path = "src"
 
 [[tool.mypy.overrides]]
-module = ["qtpy.*", "boto3.*", "botocore.*", "moto.*", "xxhash"]
-
-[[tool.mypy.overrides]]
-module = "deadline.client.ui.*"
-# 1. [attr-defined] - It thinks Qt, etc. are types and can't see their attributes
-# 2. [assignment] - we have a lot of self.layout assignments in QWidgets
-disable_error_code = ["attr-defined", "assignment"]
+module = ["boto3.*", "botocore.*", "moto.*", "xxhash"]
 
 [tool.ruff]
 line-length = 100
@@ -153,7 +125,6 @@ markers = [
   "integ: tests that run against AWS resources",
   "docker: marks tests to be run only in a Docker environment",
   "cross_account: tests that run against other aws accounts",
-  "asyncio: mark test as async",
 ]
 # looponfailroots is deprecated, this removes the deprecation from the test output
 filterwarnings = ["ignore::DeprecationWarning"]
@@ -164,7 +135,6 @@ disable_warnings = ["module-not-measured"]
 branch = true
 parallel = false
 source_pkgs = ["deadline"]
-omit = ["*/deadline/client/ui/*"]
 plugins = ["coverage_conditional_plugin"]
 
 [tool.coverage.paths]
@@ -225,12 +195,3 @@ lstrip_blocks = true
 
 [tool.semantic_release.branches.release]
 match = "(mainline|release|patch_.*)"
-
-[tool.importlinter]
-root_package = "deadline"
-
-[[tool.importlinter.contracts]]
-name = "Job Attachments must not import from Client"
-type = "forbidden"
-source_modules = ["deadline.job_attachments"]
-forbidden_modules = ["deadline.client"]

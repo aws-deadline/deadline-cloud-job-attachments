@@ -66,60 +66,6 @@ def default_job_template() -> str:
     )
 
 
-@pytest.fixture(scope="session")
-def default_job_template_step_step_dependency() -> str:
-    """
-    A generic job template with 2 steps. Second step depends on first step. Both steps have 1 task.
-    """
-    return json.dumps(
-        {
-            "name": "custom-step-step-job",
-            "specificationVersion": "jobtemplate-2023-09",
-            "steps": [
-                {
-                    "name": "custom-step",
-                    "parameterSpace": {
-                        "taskParameterDefinitions": [
-                            {"name": "frame", "type": "INT", "range": ["0"]}
-                        ]
-                    },
-                    "script": {
-                        "actions": {"onRun": {"command": "{{ Task.File.run }}"}},
-                        "embeddedFiles": [
-                            {
-                                "name": "run",
-                                "data": "#!/bin/env bash\nset -ex\necho 'First Step'",
-                                "runnable": True,
-                                "type": "TEXT",
-                            }
-                        ],
-                    },
-                },
-                {
-                    "name": "custom-step-2",
-                    "dependencies": [{"dependsOn": "custom-step"}],
-                    "parameterSpace": {
-                        "taskParameterDefinitions": [
-                            {"name": "frame", "type": "INT", "range": ["0"]}
-                        ]
-                    },
-                    "script": {
-                        "actions": {"onRun": {"command": "{{ Task.File.run }}"}},
-                        "embeddedFiles": [
-                            {
-                                "name": "run",
-                                "data": "#!/bin/env bash\nset -ex\necho 'Second step'",
-                                "runnable": True,
-                                "type": "TEXT",
-                            }
-                        ],
-                    },
-                },
-            ],
-        }
-    )
-
-
 @pytest.fixture()
 def default_job_template_one_task_one_step() -> str:
     """

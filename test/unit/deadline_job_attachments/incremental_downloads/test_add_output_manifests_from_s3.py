@@ -233,7 +233,7 @@ def validate_manifest_keys_do_not_have_prefix(
 
 
 @mock_aws
-def test_add_output_manifests_from_s3_fill_in_missing_manifests(fresh_deadline_config):
+def test_add_output_manifests_from_s3_fill_in_missing_manifests():
     """
     Test that _add_output_manifests_from_s3 correctly fills in missing manifest information from S3.
 
@@ -318,7 +318,7 @@ def test_add_output_manifests_from_s3_fill_in_missing_manifests(fresh_deadline_c
     assert actual_manifest_count == expected_manifest_count
 
 
-def test_add_output_manifests_from_s3_already_stored(fresh_deadline_config):
+def test_add_output_manifests_from_s3_already_stored():
     """
     Test that _add_output_manifests_from_s3 does not modify session actions with existing manifests.
 
@@ -391,7 +391,7 @@ def test_add_output_manifests_from_s3_already_stored(fresh_deadline_config):
 
 
 @mock_aws
-def test_add_output_manifests_from_s3_edge_cases(fresh_deadline_config):
+def test_add_output_manifests_from_s3_edge_cases():
     """
     Test that _add_output_manifests_from_s3 handles edge cases and mixed scenarios correctly.
 

@@ -2,7 +2,7 @@ name: MkDocs Quality Check
 
 on:
   pull_request:
-    branches: [ mainline, release, feature_assets_cli, 'patch_*' ]
+    branches: [ mainline, release, feature_*, 'patch_*' ]
   workflow_call:
     inputs:
       branch:

@@ -33,10 +33,8 @@ class TestManifestUpload:
         return path
 
     @patch("deadline.job_attachments.api.manifest.S3AssetUploader")
-    @patch("deadline.client.api.get_boto3_session")
     def test_upload(
         self,
-        mock_get_boto3_session: MagicMock,
         mock_upload_assets: MagicMock,
         mock_manifest_file: str,
     ) -> None:
@@ -45,7 +43,6 @@ class TestManifestUpload:
         """
         # Given
         mock_boto_session = MagicMock()
-        mock_get_boto3_session.return_value = mock_boto_session
 
         # When the API is called....
         _manifest_upload(
@@ -65,10 +62,8 @@ class TestManifestUpload:
         )
 
     @patch("deadline.job_attachments.api.manifest.S3AssetUploader")
-    @patch("deadline.client.api.get_boto3_session")
     def test_upload_with_prefix(
         self,
-        mock_get_boto3_session: MagicMock,
         mock_upload_assets: MagicMock,
         mock_manifest_file: str,
     ) -> None:
@@ -77,7 +72,6 @@ class TestManifestUpload:
         """
         # Given
         mock_boto_session = MagicMock()
-        mock_get_boto3_session.return_value = mock_boto_session
 
         # When the API is called....
         _manifest_upload(

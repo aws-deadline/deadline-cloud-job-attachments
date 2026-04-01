@@ -187,7 +187,7 @@ def generate_fake_job_with_output_manifest(
     sys.version_info < (3, 9), reason="test uses random.randbytes which is Python >= 3.9"
 )
 @mock_aws
-def test_manifest_and_output_downloads(tmp_path, fresh_deadline_config):
+def test_manifest_and_output_downloads(tmp_path):
     """
     This test uses moto3 to mock a bunch of job attachment output data in S3, and then
     calls the sequence of functions used in incremental downloads

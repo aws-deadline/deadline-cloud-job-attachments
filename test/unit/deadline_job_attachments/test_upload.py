@@ -1265,7 +1265,7 @@ class TestUpload:
                     hash_cache_dir=cache_dir,
                 )
 
-    def test_asset_uploader_constructor(self, fresh_deadline_config):
+    def test_asset_uploader_constructor(self):
         """
         Test that when the asset uploader is created, the instance variables are correctly set.
         """
@@ -1274,7 +1274,7 @@ class TestUpload:
         assert uploader.small_file_threshold == 20 * 8 * (1024**2)
 
     def test_asset_uploader_constructor_with_non_integer_config_settings(
-        self, fresh_deadline_config
+        self,
     ):
         """
         Tests that the asset uploader works correctly with valid integer params.
@@ -1319,7 +1319,7 @@ class TestUpload:
         ],
     )
     def test_asset_uploader_constructor_with_nonvalid_config_settings(
-        self, setting_name, nonvalid_value, expected_error_msg, fresh_deadline_config
+        self, setting_name, nonvalid_value, expected_error_msg
     ):
         """
         Tests that when the asset uploader is created with nonvalid settings, an AssetSyncError is raised.

@@ -17,12 +17,6 @@ mise.toml
 /build/
 /dist/
 /site/
-installer/components
-scripts/pyinstaller/build
-scripts/pyinstaller/dist
-
-# Compiled translations
-src/deadline/client/ui/_translation_keys.py
 
 # Misc extensions
 *.run
@@ -36,6 +30,4 @@ src/deadline/client/ui/_translation_keys.py
 .vscode
 .kiro
 
-# Install builder license
-license.xml
 /THIRD_PARTY_LICENSES

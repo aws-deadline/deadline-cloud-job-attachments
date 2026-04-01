@@ -6,28 +6,18 @@ This document provides guidance for AI agents working with this codebase.
 
 AWS Deadline Cloud client is a Python library and CLI tool for interacting with [AWS Deadline Cloud](https://docs.aws.amazon.com/deadline-cloud/latest/userguide/what-is-deadline-cloud.html). It supports job submission, file transfer via job attachments, and provides both CLI and GUI interfaces.
 
-**Package name:** `deadline`
-**Python versions:** 3.8 - 3.13
+**Package name:** `deadline-job-attachments`
+**Python versions:** 3.8 - 3.14
 **Platforms:** Linux, Windows, macOS
 
 ## Repository Structure
 
 ```
 src/deadline/
-├── client/           # Main client library
-│   ├── api/          # Boto3 wrappers and AWS API helpers
-│   ├── cli/          # CLI entry points (deadline command)
-│   ├── config/       # Configuration (~/.deadline/*)
-│   ├── ui/           # Qt/PySide GUI components
-│   ├── job_bundle/   # Job bundle handling and history
-│   └── dataclasses/  # Data structures
-├── job_attachments/  # File transfer to/from S3
-│   ├── api/          # Public job attachments API
-│   ├── caches/       # Hash and S3 check caches
-│   └── asset_manifests/  # Manifest handling
-├── mcp/              # MCP server (public)
-├── _mcp/             # MCP server (internal)
-└── common/           # Shared utilities
+└── job_attachments/  # File transfer to/from S3
+    ├── api/          # Public job attachments API
+    ├── caches/       # Hash and S3 check caches
+    └── asset_manifests/  # Manifest handling
 ```
 
 ## Key Commands
@@ -46,13 +36,6 @@ hatch run integ:test     # Integration tests (requires AWS)
 hatch run lint           # Check formatting
 hatch run fmt            # Auto-format code
 hatch shell              # Enter dev environment
-
-# CLI usage
-deadline farm list
-deadline bundle submit <path>
-deadline job list
-deadline job get
-deadline job logs --job-id <id>
 ```
 
 ## Code Conventions
@@ -102,7 +85,6 @@ git commit -s            # Always sign commits with -s
 
 - **Unit tests:** `test/unit/` - Run with `hatch run test`
 - **Integration tests:** `test/integ/` - Requires AWS resources
-- **Squish GUI tests:** `test/squish/` - Requires Squish license
 - **Docker tests:** `scripts/run_sudo_tests.sh` - For permission tests
 
 Tests use pytest with unittest.mock. Coverage target: 80%.
@@ -111,23 +93,10 @@ Tests use pytest with unittest.mock. Coverage target: 80%.
 
 Breaking changes require conventional commit syntax (`feat!:`, `fix!:`).
 
-**CLI contracts:**
-- Subcommand names and arguments
-- Default values and behaviors
-
 **Python API contracts:**
 - All non-underscore-prefixed functions/classes in public modules
 - Function signatures (adding required params is breaking)
 - Default argument values
-
-## Qt/GUI Guidelines
-
-Never call AWS APIs from the main Qt thread. Use:
-1. Background threads for API calls
-2. Qt Signals to return results to widgets
-3. Cancellation flags for thread cleanup
-
-See `deadline_config_dialog.py` for examples.
 
 ## Dependencies
 
@@ -147,16 +116,3 @@ applications where dependency conflicts are possible. When adding:
 | `DEVELOPMENT.md` | Development setup and workflows |
 | `CHANGELOG_GUIDELINES.md` | Changelog formatting rules |
 | `scripts/README.md` | API change detection scripts |
-
-## Environment Variables
-
-- `DEADLINE_CONFIG_FILE_PATH` - Override config location (default: `~/.deadline/config`)
-- `AWS_ENDPOINT_URL_DEADLINE` - Custom Deadline Cloud endpoint
-
-## Optional Features
-
-Install with extras:
-```bash
-pip install "deadline[gui]"  # Qt GUI components
-pip install "deadline[mcp]"  # MCP server for AI assistants
-```

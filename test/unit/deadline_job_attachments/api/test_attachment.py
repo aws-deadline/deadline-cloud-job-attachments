@@ -1,10 +1,10 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 
 """
-Test the deadline.client.api functions relating to attachment
+Test the attachment upload and download API functions.
 """
 
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from typing import Dict, List
 from pathlib import Path
 
@@ -14,7 +14,6 @@ import json
 
 import deadline
 
-from deadline.client import api
 from deadline.job_attachments.exceptions import NonValidInputError
 from deadline.job_attachments.api.attachment import (
     _attachment_download,
@@ -108,8 +107,7 @@ def test_process_openjd_path_mapping(temp_assets_dir):
 
 @pytest.fixture
 def session_mock():
-    with patch.object(api._session, "get_boto3_session") as session_mock:
-        yield session_mock
+    yield MagicMock()
 
 
 class TestAttachmentDownload:

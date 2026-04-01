@@ -39,12 +39,12 @@ code base and development practices.
 
 If you are not sure what you would like to contribute, then looking at the existing issues is a great way to find
 something to contribute on. Looking at 
-[issues that have the "help wanted" or "good first issue" labels](https://github.com/aws-deadline/deadline-cloud/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22%2C%22help+wanted%22)
+[issues that have the "help wanted" or "good first issue" labels](https://github.com/aws-deadline/deadline-cloud-job-attachments/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22%2C%22help+wanted%22)
 are a good place to start, but please dive into any issue that interests you whether it has those labels or not.
 
 ### Talk with us first
 
-We ask that you please [open a feature request issue](https://github.com/aws-deadline/deadline-cloud/issues/new/choose)
+We ask that you please [open a feature request issue](https://github.com/aws-deadline/deadline-cloud-job-attachments/issues/new/choose)
 (if one does not already exist) and talk with us before posting a pull request that contains a significant amount of work,
 or one that proposes a change to a public interface such as to the interface of a publicly exported Python function or to
 the command-line interfaces' commands or arguments. We want to make sure that your time and effort is respected by working
@@ -53,7 +53,7 @@ you are thinking and then talk with us, then that works with us as well.
 
 We prefer that this package contain primarily features that are useful to many users of it, rather than features that are specific
 to niche workflows. If you have a feature in mind, but are not sure whether it is niche or not then please 
-[open a feature request issue](https://github.com/aws-deadline/deadline-cloud/issues/new/choose). We will do our best to help
+[open a feature request issue](https://github.com/aws-deadline/deadline-cloud-job-attachments/issues/new/choose). We will do our best to help
 you make that assessment, and posting a public issue will help others find your feature idea and add their support if they
 would also find it useful.
 
