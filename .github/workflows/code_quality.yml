@@ -36,7 +36,7 @@ jobs:
       os: ${{ matrix.os }}
       python-version: ${{ matrix.python-version }}
       ref: ${{inputs.tag}}
-      # The incremental output download and mcp feature doesn't run on Python 3.8, so test coverage is lower
+      # Test coverage threshold
       cov-fail-under: "74"
 
   Attributions:

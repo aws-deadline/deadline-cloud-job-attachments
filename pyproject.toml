@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "deadline-job-attachments"
-description = "Library that implements functionality to support applications using AWS Deadline Cloud."
+description = "Library that enables file transfers between workstations and AWS Deadline Cloud using Amazon S3 buckets as content-addressed storage."
 authors = [{ name = "Amazon Web Services" }]
 dynamic = ["version"]
 readme = "README.md"
@@ -69,7 +69,7 @@ include = ["src/*", "hatch_custom_hook.py", "THIRD_PARTY_LICENSES"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/deadline"]
-artifacts = ["*_version.py", "src/deadline/client/ui/translations/locales/*.json"]
+artifacts = ["*_version.py"]
 
 [tool.mypy]
 # Enables the type-checker on the interior of functions without type annotations.

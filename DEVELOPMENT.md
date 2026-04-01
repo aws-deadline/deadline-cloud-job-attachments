@@ -15,8 +15,6 @@ Table of Contents:
       - [Running Docker-based Unit Tests](#running-docker-based-unit-tests)
     - [Integration Tests](#integration-tests)
       - [Running Integration Tests](#running-integration-tests)
-    - [Squish GUI Submitter Tests](#squish-gui-submitter-tests)
-      - [Running Squish GUI Submitter Tests](#running-squish-gui-submitter-tests)
   - [Changelog Guidelines](#changelog-guidelines)
   - [Things to Know](#things-to-know)
     - [Public Contracts](#public-contracts)
@@ -28,9 +26,6 @@ Table of Contents:
       - [Quality of the dependency](#quality-of-the-dependency)
       - [Version Pinning](#version-pinning)
       - [Licensing](#licensing)
-    - [Qt and Calling AWS (including AWS Deadline Cloud) APIs](#qt-and-calling-aws-including-aws-deadline-cloud-apis)
-    - [Pattern 1: Simple Async Operations (Recommended)](#pattern-1-simple-async-operations-recommended)
-    - [Pattern 2: Long-Running Operations with Progress](#pattern-2-long-running-operations-with-progress)
 - [Profiling in Deadline Cloud](#profiling-in-deadline-cloud)
 
 ## Development Environment Setup

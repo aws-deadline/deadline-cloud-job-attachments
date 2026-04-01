@@ -34,7 +34,7 @@ versions will increment during this initial development stage, they are describe
 
 ## Getting Started
 
-The AWS Deadline Cloud client can be installed by the standard python packaging mechanisms:
+AWS Deadline Cloud job attachments can be installed by the standard python packaging mechanisms:
 ```sh
 $ pip install deadline-job-attachments
 ```

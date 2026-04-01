@@ -1,6 +1,6 @@
 # Changelog Guidelines
 
-This document provides formal guidance on structuring and writing changelog entries for the AWS Deadline Cloud client repository.
+This document provides formal guidance on structuring and writing changelog entries for the AWS Deadline Cloud job attachments repository.
 
 ## Table of Contents
 
@@ -100,8 +100,8 @@ Deprecations MUST include:
 ```markdown
 ## DEPRECATIONS
 
-* The CLI `bundle gui-submit --submitter-name` option has been deprecated. `--submitter-info` should now be used to provide the name. This option will be removed in version 1.0.0.
-* `--timezone` is being deprecated in favor of `--timestamp-format` for the `job logs` command. `--timezone` will be removed in a future release.
+* The `--full-copy` option for `asset_sync.sync()` has been deprecated. `--transfer-mode` should now be used. This option will be removed in version 1.0.0.
+* `HashAlgorithm.MD5` is being deprecated in favor of `HashAlgorithm.XXH128`. `MD5` will be removed in a future release.
 ```
 
 ## Fixes to Unreleased Changes
@@ -227,8 +227,8 @@ These changes are experimental and are subject to change.
 
 These changes are experimental and are subject to change.
 
-* MCP Server:
-  * Add get_session_logs to mcp server (#909) ([`c9f83a4`])
+* S3 Check Cache:
+  * Add configurable TTL for S3 check cache entries (#909) ([`c9f83a4`])
 * Incremental/Automatic Downloads (requires `ENABLE_INCREMENTAL_DOWNLOAD=true`):
   * Add storage profile support for incremental download (#773) ([`d7fd976`])
   * Add internal functions to support path mapping (#764) ([`5a28a64`])

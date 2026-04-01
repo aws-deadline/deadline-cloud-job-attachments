@@ -42,7 +42,7 @@ nav:
       - "progress_tracker": code_reference/job_attachments_progress_tracker.md
       - "upload": code_reference/job_attachments_upload.md
       - "vfs": code_reference/job_attachments_vfs.md
-  - Job Attachments Guide: job_attachments_guide.md
+
 
 plugins:
   - search
