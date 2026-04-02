@@ -45,6 +45,7 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/aws-deadline/deadline-cloud-job-attachments"
 Source = "https://github.com/aws-deadline/deadline-cloud-job-attachments"
+Changelog = "https://github.com/aws-deadline/deadline-cloud-job-attachments/blob/mainline/CHANGELOG.md"
 
 [tool.hatch.build]
 artifacts = ["*_version.py"]
@@ -65,7 +66,7 @@ path = "hatch_custom_hook.py"
 destinations = ["src/deadline/job_attachments"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/*", "hatch_custom_hook.py", "THIRD_PARTY_LICENSES"]
+include = ["src/*", "hatch_custom_hook.py"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/deadline"]
@@ -105,8 +106,6 @@ known-first-party = ["deadline"]
 "src/deadline/job_attachments/_windows/*.py" = ["E402"]
 
 
-# Configuration for pytest; enable coverage for deadline_worker_agent, emit
-# XML, HTML, and terminal reports.
 [tool.pytest.ini_options]
 xfail_strict = true
 

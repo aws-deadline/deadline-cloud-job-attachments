@@ -162,14 +162,12 @@ export FARM_ID=farm-00112233445566778899aabbccddeeff
 # Job Attachments bucket.
 export QUEUE_ID=queue-00112233445566778899aabbccddeeff
 
-export JOB_ATTACHMENTS_BUCKET=$(
-   aws deadline get-queue --farm-id $FARM_ID --queue-id $QUEUE_ID \
-    --query 'jobAttachmentSettings.s3BucketName' | tr -d '"'
+_queue_info=$(
+  aws deadline get-queue --farm-id "$FARM_ID" --queue-id "$QUEUE_ID" \
+    --query 'jobAttachmentSettings.[s3BucketName, rootPrefix]' --output text
 )
-export JA_TEST_ROOT_PREFIX=$(
-   aws deadline get-queue --farm-id $FARM_ID --queue-id $QUEUE_ID \
-    --query 'jobAttachmentSettings.rootPrefix' | tr -d '"'
-)
+export JOB_ATTACHMENTS_BUCKET=$(echo "$_queue_info" | awk '{print $1}')
+export JA_TEST_ROOT_PREFIX=$(echo "$_queue_info" | awk '{print $2}')
 ```
 
 Then you can run the integration tests with:
@@ -340,4 +338,3 @@ We try to minimize the number of dependencies required to build and run Deadline
 #### Licensing
 
 *   Please ensure the license of the dependency is compatible with the distribution license of this library.
-*   Please attribute dependencies in https://github.com/aws-deadline/deadline-cloud-job-attachments/blob/mainline/THIRD_PARTY_LICENSES.

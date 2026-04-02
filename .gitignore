@@ -5,6 +5,7 @@ __pycache__/
 .coverage*
 .tox
 .venv
+.envrc
 /htmlcov
 .attach_pid*
 *.swp
@@ -30,4 +31,3 @@ mise.toml
 .vscode
 .kiro
 
-/THIRD_PARTY_LICENSES
