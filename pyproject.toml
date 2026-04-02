@@ -45,6 +45,7 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/aws-deadline/deadline-cloud-job-attachments"
 Source = "https://github.com/aws-deadline/deadline-cloud-job-attachments"
+Changelog = "https://github.com/aws-deadline/deadline-cloud-job-attachments/blob/mainline/CHANGELOG.md"
 
 [tool.hatch.build]
 artifacts = ["*_version.py"]
