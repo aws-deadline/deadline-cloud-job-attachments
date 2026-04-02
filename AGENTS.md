@@ -105,7 +105,6 @@ applications where dependency conflicts are possible. When adding:
 - Evaluate if functionality can be implemented locally
 - Check library quality (maintenance, downloads, stars)
 - Ensure license compatibility (Apache-2.0)
-- Document in THIRD_PARTY_LICENSES
 
 ## Key Files
 

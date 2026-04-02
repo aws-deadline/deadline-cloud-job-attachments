@@ -340,4 +340,3 @@ We try to minimize the number of dependencies required to build and run Deadline
 #### Licensing
 
 *   Please ensure the license of the dependency is compatible with the distribution license of this library.
-*   Please attribute dependencies in https://github.com/aws-deadline/deadline-cloud-job-attachments/blob/mainline/THIRD_PARTY_LICENSES.
