@@ -5,6 +5,7 @@ __pycache__/
 .coverage*
 .tox
 .venv
+.envrc
 /htmlcov
 .attach_pid*
 *.swp
