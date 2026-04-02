@@ -1,0 +1,43 @@
+[envs.default]
+pre-install-commands = ["pip install -r requirements-testing.txt"]
+
+[envs.default.scripts]
+sync = "pip install -r requirements-testing.txt"
+test = "pytest --cov-config pyproject.toml {args:test/unit}"
+test_docker = "./scripts/run_sudo_tests.sh --build"
+typing = "mypy {args:src test}"
+style = ["ruff check {args:.}", "ruff format --check --diff {args:.}"]
+fmt = ["ruff format {args:.}", "style"]
+lint = ["style", "typing"]
+check-imports = "lint-imports"
+
+[[envs.all.matrix]]
+python = ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+
+[envs.integ]
+pre-install-commands = [
+  "pip install -r requirements-integ-testing.txt",
+  "pip install -r requirements-testing.txt",
+]
+
+[envs.integ.scripts]
+test = "pytest --xfail-tb --no-cov -vvv --numprocesses=1 {args:test/integ}"
+
+[envs.release]
+detached = true
+
+[envs.release.scripts]
+deps = "pip install -r requirements-release.txt"
+bump = "semantic-release -v --strict version --no-push --no-commit --no-tag --skip-build {args}"
+version = "semantic-release -v --strict version --print {args}"
+
+[envs.docs]
+pre-install-commands = ["pip install -r requirements-docs.txt"]
+
+[envs.docs.scripts]
+build = "mkdocs build --strict"
+serve = "mkdocs serve"
+deploy = "mkdocs gh-deploy {args}"
+generate-api-snapshot = "python scripts/generate_api_snapshot.py {args}"
+validate-api-snapshot = "python scripts/validate_api_snapshot.py {args}"
+check-api-breaks = "griffe check -s src deadline {args}"

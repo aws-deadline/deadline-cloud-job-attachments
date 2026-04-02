@@ -1,0 +1,7 @@
+mkdocs >= 1.5.0
+mkdocs-material >= 9.4.0
+mkdocs-section-index >= 0.3.10
+mkdocstrings[python]
+mkdocs-click
+# griffe version will match whichever griffelib mkdocstrings uses
+griffe
