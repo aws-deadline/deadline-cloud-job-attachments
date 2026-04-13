@@ -34,7 +34,7 @@ classifiers = [
 # Applications that consume this library should be the ones that are more strictly
 # limiting dependencies if they want/need to.
 dependencies = [
-  "boto3 >= 1.42.29; python_version >= '3.9'",
+  "boto3 >= 1.42.88; python_version >= '3.9'",
   "boto3 >= 1.36.8; python_version < '3.9'",
   "typing_extensions >= 4.8",
   "xxhash >= 3.4,< 3.7",
