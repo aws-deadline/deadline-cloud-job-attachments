@@ -38,7 +38,7 @@ dependencies = [
   "boto3 >= 1.36.8; python_version < '3.9'",
   "typing_extensions >= 4.8",
   "xxhash >= 3.4,< 3.7",
-  "pywin32 >= 307; sys_platform == 'win32'",
+  "pywin32 >= 311; sys_platform == 'win32'",
   "psutil >= 7.0.0"
 ]
 
