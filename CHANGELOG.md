@@ -8,3 +8,4 @@ Initial release of `deadline-job-attachments`, migrated from [aws-deadline/deadl
 ### Bug Fixes
 * Fixed dependency job attachment syncing to use OVERWRITE mode instead of COPY mode. Previously, syncing dependency job attachments within the worker agent would incorrectly create new filenames with suffixes like `(1)` instead of overwriting existing files. (#11, `855d54f`)
 * Improved the error message when a download directory cannot be created (e.g., due to cross-OS path incompatibility like Linux paths on macOS). Instead of a cryptic OSError, a clear message now explains the failure and suggests re-running the download to choose a valid local path. (#11, `92fc878`)
+
