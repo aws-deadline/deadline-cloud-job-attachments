@@ -73,7 +73,7 @@ jobs:
         tag: ${{ needs.TagRelease.outputs.tag }}
 
   Release:
-    needs: [TagRelease]
+    needs: [TagRelease, PreRelease]
     uses: aws-deadline/.github/.github/workflows/reusable_release.yml@mainline
     secrets: inherit
     permissions:
