@@ -11,6 +11,7 @@ import posixpath
 import re
 import time
 from collections import defaultdict
+from copy import copy
 from datetime import datetime
 from fnmatch import fnmatch
 from itertools import chain
@@ -1259,6 +1260,7 @@ def _matches_any_filter(file_path: str, filters: list[str]) -> bool:
     """
     Check if a file path matches any of the given filters using glob-style matching.
     Uses fnmatch for pattern matching (supports *, ?, [seq], [!seq]).
+    Note: fnmatch's '*' matches across '/' separators, so '*.png' matches 'subdir/frame.png'.
     A filter ending with '/' matches all files under that directory.
     Relative filters (not starting with '/' or '*') are auto-prepended with '*/' so they
     match anywhere under the root — e.g. 'renders/*.exr' matches '*/renders/*.exr'.
@@ -1297,10 +1299,7 @@ def _filter_paths(
                 f for f in file_list if _matches_any_filter(_full_path(root, f.path), path_filters)
             ]
             if matching:
-                if hash_alg not in filtered_group.files_by_hash_alg:
-                    filtered_group.files_by_hash_alg[hash_alg] = matching
-                else:
-                    filtered_group.files_by_hash_alg[hash_alg].extend(matching)
+                filtered_group.files_by_hash_alg[hash_alg] = matching
                 filtered_group.total_bytes += sum(f.size for f in matching)
         if filtered_group.files_by_hash_alg:
             filtered[root] = filtered_group
@@ -1315,7 +1314,8 @@ def _filter_manifests(
     Filter BaseAssetManifest objects using glob-style include patterns.
     Filters are matched against the full path (root + relative) to support
     patterns like '*/renders/*.png'.
-    Returns a new dict with manifests whose paths have been filtered; empty manifests are removed.
+    Returns a new dict with copied manifests whose paths have been filtered;
+    empty manifests are removed.
     """
     filtered: dict[str, list[BaseAssetManifest]] = {}
     for root, manifest_list in manifests_by_root.items():
@@ -1327,8 +1327,9 @@ def _filter_manifests(
                 if _matches_any_filter(_full_path(root, p.path), path_filters)
             ]
             if matching:
-                manifest.paths = matching
-                filtered_manifests.append(manifest)
+                filtered_manifest = copy(manifest)
+                filtered_manifest.paths = matching
+                filtered_manifests.append(filtered_manifest)
         if filtered_manifests:
             filtered[root] = filtered_manifests
     return filtered
