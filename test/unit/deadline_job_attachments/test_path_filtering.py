@@ -298,7 +298,7 @@ class TestFilterManifests:
 class TestOutputDownloaderFiltering:
     """Tests for OutputDownloader include_filters constructor param and apply_include_filters()."""
 
-    def _make_downloader_with_outputs(self, root: str, paths: list[str]):
+    def _make_downloader_with_outputs(self, root: str, paths: List[str]):
         """Create an OutputDownloader with mocked outputs_by_root."""
         from unittest.mock import patch, MagicMock
 
