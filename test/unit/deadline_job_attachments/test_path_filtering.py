@@ -2,6 +2,8 @@
 
 """Tests for path filtering in download.py"""
 
+import os
+from pathlib import Path
 from typing import List
 
 from deadline.job_attachments.download import (
@@ -374,11 +376,16 @@ class TestOutputDownloaderFiltering:
         dl.apply_include_filters(["*.exr"])
         assert dl.get_output_paths_by_root() == {"/root": ["renders/a.exr"]}
 
-    def test_set_root_path_reapplies_absolute_filters(self):
+    def test_set_root_path_reapplies_absolute_filters(self, tmp_path):
         """Absolute filters are reapplied against the new root after set_root_path."""
         from unittest.mock import patch, MagicMock
 
         from deadline.job_attachments.download import OutputDownloader
+
+        original = str(tmp_path / "original")
+        new = str(tmp_path / "new_root")
+        new_normalized = str(os.path.normpath(Path(new).absolute()))
+        filter_pattern = new_normalized.replace("\\", "/") + "/renders/*"
 
         with patch(
             "deadline.job_attachments.download.get_job_output_paths_by_asset_root"
@@ -389,24 +396,29 @@ class TestOutputDownloaderFiltering:
                 for p in ["renders/a.exr", "logs/b.log"]
             ]
             group.total_bytes = 200
-            mock_get.return_value = {"/original": group}
+            mock_get.return_value = {original: group}
 
             dl = OutputDownloader(
                 s3_settings=MagicMock(),
                 farm_id="farm-1",
                 queue_id="queue-1",
                 job_id="job-1",
-                include_filters=["/new_root/renders/*"],
+                include_filters=[filter_pattern],
             )
         # Filter doesn't match original root, so nothing selected yet
         assert dl.get_output_paths_by_root() == {}
         # After remapping, the filter now matches
-        dl.set_root_path("/original", "/new_root")
-        assert dl.get_output_paths_by_root() == {"/new_root": ["renders/a.exr"]}
+        dl.set_root_path(original, new)
+        assert dl.get_output_paths_by_root() == {new_normalized: ["renders/a.exr"]}
 
-    def test_set_root_path_then_filter(self):
+    def test_set_root_path_then_filter(self, tmp_path):
         """Filters applied after set_root_path match against the new root."""
-        dl = self._make_downloader_with_outputs("/original", ["renders/a.exr", "logs/b.log"])
-        dl.set_root_path("/original", "/new_root")
-        dl.apply_include_filters(["/new_root/renders/*"])
-        assert dl.get_output_paths_by_root() == {"/new_root": ["renders/a.exr"]}
+        original = str(tmp_path / "original")
+        new = str(tmp_path / "new_root")
+        new_normalized = str(os.path.normpath(Path(new).absolute()))
+        filter_pattern = new_normalized.replace("\\", "/") + "/renders/*"
+
+        dl = self._make_downloader_with_outputs(original, ["renders/a.exr", "logs/b.log"])
+        dl.set_root_path(original, new)
+        dl.apply_include_filters([filter_pattern])
+        assert dl.get_output_paths_by_root() == {new_normalized: ["renders/a.exr"]}
