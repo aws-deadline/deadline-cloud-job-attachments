@@ -363,3 +363,50 @@ class TestOutputDownloaderFiltering:
         dl = self._make_downloader_with_outputs("/root", ["a.txt"])
         dl.apply_include_filters(["nonexistent.txt"])
         assert dl.get_output_paths_by_root() == {}
+
+    def test_apply_include_filters_chains(self):
+        """Calling apply_include_filters twice narrows the result further."""
+        dl = self._make_downloader_with_outputs(
+            "/root", ["renders/a.exr", "renders/b.png", "logs/c.log"]
+        )
+        dl.apply_include_filters(["renders/*"])
+        assert dl.get_output_paths_by_root() == {"/root": ["renders/a.exr", "renders/b.png"]}
+        dl.apply_include_filters(["*.exr"])
+        assert dl.get_output_paths_by_root() == {"/root": ["renders/a.exr"]}
+
+    def test_set_root_path_reapplies_absolute_filters(self):
+        """Absolute filters are reapplied against the new root after set_root_path."""
+        from unittest.mock import patch, MagicMock
+
+        from deadline.job_attachments.download import OutputDownloader
+
+        with patch(
+            "deadline.job_attachments.download.get_job_output_paths_by_asset_root"
+        ) as mock_get:
+            group = ManifestPathGroup()
+            group.files_by_hash_alg[HashAlgorithm.XXH128] = [
+                ManifestPathv2023_03_03(path=p, hash="abc123", size=100, mtime=1234000000)
+                for p in ["renders/a.exr", "logs/b.log"]
+            ]
+            group.total_bytes = 200
+            mock_get.return_value = {"/original": group}
+
+            dl = OutputDownloader(
+                s3_settings=MagicMock(),
+                farm_id="farm-1",
+                queue_id="queue-1",
+                job_id="job-1",
+                include_filters=["/new_root/renders/*"],
+            )
+        # Filter doesn't match original root, so nothing selected yet
+        assert dl.get_output_paths_by_root() == {}
+        # After remapping, the filter now matches
+        dl.set_root_path("/original", "/new_root")
+        assert dl.get_output_paths_by_root() == {"/new_root": ["renders/a.exr"]}
+
+    def test_set_root_path_then_filter(self):
+        """Filters applied after set_root_path match against the new root."""
+        dl = self._make_downloader_with_outputs("/original", ["renders/a.exr", "logs/b.log"])
+        dl.set_root_path("/original", "/new_root")
+        dl.apply_include_filters(["/new_root/renders/*"])
+        assert dl.get_output_paths_by_root() == {"/new_root": ["renders/a.exr"]}

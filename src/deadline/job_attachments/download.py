@@ -1377,7 +1377,7 @@ class OutputDownloader:
     ) -> None:
         self.s3_settings = s3_settings
         self.session = session
-        self.outputs_by_root = get_job_output_paths_by_asset_root(
+        self._initial_outputs_by_root = get_job_output_paths_by_asset_root(
             s3_settings=s3_settings,
             farm_id=farm_id,
             queue_id=queue_id,
@@ -1387,8 +1387,57 @@ class OutputDownloader:
             session_action_id=session_action_id,
             session=session,
         )
+        self._include_filter_groups: list[list[str]] = []
+        self._root_mappings: dict[str, str] = {}
         if include_filters:
-            self.apply_include_filters(include_filters)
+            self._include_filter_groups.append(include_filters)
+        self._rebuild()
+
+    def _rebuild(self) -> None:
+        """Recompute outputs_by_root from initial state by applying root mappings then filters."""
+        # Start from a deep copy of the initial data so we never mutate it
+        rebuilt: dict[str, ManifestPathGroup] = {}
+        for root, group in self._initial_outputs_by_root.items():
+            new_group = ManifestPathGroup()
+            for hash_alg, file_list in group.files_by_hash_alg.items():
+                new_group.files_by_hash_alg[hash_alg] = [
+                    type(f)(path=f.path, hash=f.hash, size=f.size, mtime=f.mtime) for f in file_list
+                ]
+            new_group.total_bytes = group.total_bytes
+            rebuilt[root] = new_group
+
+        # Apply root mappings
+        for original_root, new_root in self._root_mappings.items():
+            if original_root not in rebuilt:
+                continue
+            if new_root == original_root:
+                continue
+            if new_root in rebuilt:
+                paths_in_new_root = rebuilt[new_root].get_all_paths()
+                for manifest_paths in rebuilt[original_root].files_by_hash_alg.values():
+                    for manifest_path in manifest_paths:
+                        if manifest_path.path in paths_in_new_root:
+                            new_name_prefix = (
+                                original_root.replace("/", "_").replace("\\", "_").replace(":", "_")
+                            )
+                            manifest_path.path = str(
+                                Path(manifest_path.path).with_name(
+                                    f"{new_name_prefix}_{manifest_path.path}"
+                                )
+                            )
+                rebuilt[new_root].combine_with_group(rebuilt[original_root])
+                del rebuilt[original_root]
+            else:
+                rebuilt = {
+                    key if key != original_root else new_root: value
+                    for key, value in rebuilt.items()
+                }
+
+        # Apply filter groups sequentially (AND between groups, OR within each group)
+        for filter_group in self._include_filter_groups:
+            rebuilt = _filter_paths(rebuilt, filter_group)
+
+        self.outputs_by_root = rebuilt
 
     def get_output_paths_by_root(self) -> dict[str, list[str]]:
         """
@@ -1401,19 +1450,37 @@ class OutputDownloader:
         return output_paths_by_root
 
     def apply_include_filters(self, include_filters: list[str]) -> None:
-        """Apply glob-style include filters against the current workstation paths."""
-        self.outputs_by_root = _filter_paths(self.outputs_by_root, include_filters)
+        """Apply glob-style include filters against the current paths.
+
+        Filters are chained — calling this multiple times narrows the result further.
+        Filters are reapplied when set_root_path() is called so that absolute path
+        filters match against the updated roots.
+        """
+        self._include_filter_groups.append(include_filters)
+        self._rebuild()
 
     def set_root_path(self, original_root: str, new_root: str) -> None:
         """
         Changes the root path for downloading output files, (which is the root path
         saved in the S3 metadata for the output manifest by default,) with a custom path.
         (It will store the new root path as an absolute path.)
+
+        Stored include filters are reapplied after the root change so that absolute
+        path filters match against the updated root.
         """
         # Need to use absolute to not resolve symlinks, but need normpath to get rid of relative paths, i.e. '..'
         new_root = str(os.path.normpath(Path(new_root).absolute()))
 
-        if original_root not in self.outputs_by_root:
+        # Resolve the original_root: it may be an initial root or a previously mapped root.
+        # Find the initial root that maps to original_root (or original_root itself if unmapped).
+        initial_root = None
+        for init_root in self._initial_outputs_by_root:
+            mapped = self._root_mappings.get(init_root, init_root)
+            if mapped == original_root:
+                initial_root = init_root
+                break
+
+        if initial_root is None:
             raise ValueError(
                 f"The root path {original_root} was not found in output manifests {self.outputs_by_root}."
             )
@@ -1421,29 +1488,8 @@ class OutputDownloader:
         if new_root == original_root:
             return
 
-        if new_root in self.outputs_by_root:
-            # If the new_root already exists, and the file path in the original_root already exists
-            # among the file paths of the new_root, then prefix the file path with the original_root path.
-            # This is to avoid duplicate file paths in the new_root.
-            paths_in_new_root = self.outputs_by_root[new_root].get_all_paths()
-            for manifest_paths in self.outputs_by_root[original_root].files_by_hash_alg.values():
-                for manifest_path in manifest_paths:
-                    if manifest_path.path in paths_in_new_root:
-                        new_name_prefix = (
-                            original_root.replace("/", "_").replace("\\", "_").replace(":", "_")
-                        )
-                        manifest_path.path = str(
-                            Path(manifest_path.path).with_name(
-                                f"{new_name_prefix}_{manifest_path.path}"
-                            )
-                        )
-            self.outputs_by_root[new_root].combine_with_group(self.outputs_by_root[original_root])
-            del self.outputs_by_root[original_root]
-        else:
-            self.outputs_by_root = {
-                key if key != original_root else new_root: value
-                for key, value in self.outputs_by_root.items()
-            }
+        self._root_mappings[initial_root] = new_root
+        self._rebuild()
 
     def download_job_output(
         self,
