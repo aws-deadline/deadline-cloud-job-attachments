@@ -1306,7 +1306,7 @@ def _filter_paths(
     return filtered
 
 
-def _filter_manifests(
+def filter_manifests(
     manifests_by_root: dict[str, list[BaseAssetManifest]],
     path_filters: list[str],
 ) -> dict[str, list[BaseAssetManifest]]:
@@ -1388,7 +1388,7 @@ class OutputDownloader:
             session=session,
         )
         if include_filters:
-            self.outputs_by_root = _filter_paths(self.outputs_by_root, include_filters)
+            self.apply_include_filters(include_filters)
 
     def get_output_paths_by_root(self) -> dict[str, list[str]]:
         """

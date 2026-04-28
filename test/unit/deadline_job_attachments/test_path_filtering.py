@@ -8,7 +8,7 @@ from deadline.job_attachments.download import (
     _matches_any_filter,
     _full_path,
     _filter_paths,
-    _filter_manifests,
+    filter_manifests,
 )
 from deadline.job_attachments.models import ManifestPathGroup
 from deadline.job_attachments.asset_manifests.base_manifest import (
@@ -258,19 +258,19 @@ class TestFilterManifests:
         manifests_by_root = {
             "/home/user": [self._make_manifest(["renders/a.exr", "textures/b.png"])]
         }
-        result = _filter_manifests(manifests_by_root, ["*/renders/*.exr"])
+        result = filter_manifests(manifests_by_root, ["*/renders/*.exr"])
         assert [p.path for p in result["/home/user"][0].paths] == ["renders/a.exr"]
 
     def test_directory_prefix_filter(self):
         manifests_by_root = {
             "/root": [self._make_manifest(["renders/a.exr", "renders/b.exr", "textures/c.png"])]
         }
-        result = _filter_manifests(manifests_by_root, ["/root/renders/"])
+        result = filter_manifests(manifests_by_root, ["/root/renders/"])
         assert [p.path for p in result["/root"][0].paths] == ["renders/a.exr", "renders/b.exr"]
 
     def test_no_matches_returns_empty(self):
         manifests_by_root = {"/root": [self._make_manifest(["a.txt"])]}
-        result = _filter_manifests(manifests_by_root, ["nonexistent.txt"])
+        result = filter_manifests(manifests_by_root, ["nonexistent.txt"])
         assert result == {}
 
     def test_empty_root_removed(self):
@@ -278,7 +278,7 @@ class TestFilterManifests:
             "/has_match": [self._make_manifest(["a.txt"])],
             "/no_match": [self._make_manifest(["b.txt"])],
         }
-        result = _filter_manifests(manifests_by_root, ["*/a.txt"])
+        result = filter_manifests(manifests_by_root, ["*/a.txt"])
         assert "/has_match" in result
         assert "/no_match" not in result
 
@@ -289,7 +289,77 @@ class TestFilterManifests:
                 self._make_manifest(["c.txt", "d.txt"]),
             ]
         }
-        result = _filter_manifests(manifests_by_root, ["*/a.txt", "*/c.txt"])
+        result = filter_manifests(manifests_by_root, ["*/a.txt", "*/c.txt"])
         assert len(result["/root"]) == 2
         assert [p.path for p in result["/root"][0].paths] == ["a.txt"]
         assert [p.path for p in result["/root"][1].paths] == ["c.txt"]
+
+
+class TestOutputDownloaderFiltering:
+    """Tests for OutputDownloader include_filters constructor param and apply_include_filters()."""
+
+    def _make_downloader_with_outputs(self, root: str, paths: list[str]):
+        """Create an OutputDownloader with mocked outputs_by_root."""
+        from unittest.mock import patch, MagicMock
+
+        from deadline.job_attachments.download import OutputDownloader
+
+        with patch(
+            "deadline.job_attachments.download.get_job_output_paths_by_asset_root"
+        ) as mock_get:
+            group = ManifestPathGroup()
+            group.files_by_hash_alg[HashAlgorithm.XXH128] = [
+                ManifestPathv2023_03_03(path=p, hash="abc123", size=100, mtime=1234000000)
+                for p in paths
+            ]
+            group.total_bytes = len(paths) * 100
+            mock_get.return_value = {root: group}
+
+            downloader = OutputDownloader(
+                s3_settings=MagicMock(),
+                farm_id="farm-1",
+                queue_id="queue-1",
+                job_id="job-1",
+            )
+        return downloader
+
+    def test_constructor_without_filters(self):
+        dl = self._make_downloader_with_outputs("/root", ["a.exr", "b.png"])
+        assert dl.get_output_paths_by_root() == {"/root": ["a.exr", "b.png"]}
+
+    def test_constructor_with_include_filters(self):
+        from unittest.mock import patch, MagicMock
+
+        from deadline.job_attachments.download import OutputDownloader
+
+        with patch(
+            "deadline.job_attachments.download.get_job_output_paths_by_asset_root"
+        ) as mock_get:
+            group = ManifestPathGroup()
+            group.files_by_hash_alg[HashAlgorithm.XXH128] = [
+                ManifestPathv2023_03_03(path=p, hash="abc123", size=100, mtime=1234000000)
+                for p in ["renders/a.exr", "renders/b.exr", "logs/c.log"]
+            ]
+            group.total_bytes = 300
+            mock_get.return_value = {"/root": group}
+
+            dl = OutputDownloader(
+                s3_settings=MagicMock(),
+                farm_id="farm-1",
+                queue_id="queue-1",
+                job_id="job-1",
+                include_filters=["*/renders/*.exr"],
+            )
+        assert dl.get_output_paths_by_root() == {"/root": ["renders/a.exr", "renders/b.exr"]}
+
+    def test_apply_include_filters(self):
+        dl = self._make_downloader_with_outputs(
+            "/root", ["renders/a.exr", "renders/b.png", "logs/c.log"]
+        )
+        dl.apply_include_filters(["*.exr"])
+        assert dl.get_output_paths_by_root() == {"/root": ["renders/a.exr"]}
+
+    def test_apply_include_filters_no_match(self):
+        dl = self._make_downloader_with_outputs("/root", ["a.txt"])
+        dl.apply_include_filters(["nonexistent.txt"])
+        assert dl.get_output_paths_by_root() == {}
