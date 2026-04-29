@@ -1,3 +1,7 @@
+## 0.0.2 (2026-04-29)
+
+### Features
+* Added glob-style include filtering support for output downloads. You can now pass `include_filters` to `OutputDownloader` to selectively download only files matching specified patterns, and use `apply_include_filters()` to chain filters. (#21)
 ## 0.0.1 (2026-04-23)
 
 Initial release of `deadline-job-attachments`, migrated from [aws-deadline/deadline-cloud@`83a363d8`](https://github.com/aws-deadline/deadline-cloud/commit/83a363d8).
