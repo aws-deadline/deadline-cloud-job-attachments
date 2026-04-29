@@ -7,10 +7,13 @@ from __future__ import annotations
 import concurrent.futures
 import json
 import os
+import posixpath
 import re
 import time
 from collections import defaultdict
+from copy import copy
 from datetime import datetime
+from fnmatch import fnmatch
 from itertools import chain
 from logging import Logger, LoggerAdapter, getLogger
 from pathlib import Path
@@ -73,7 +76,6 @@ from .os_file_permission import (
 from ._utils import (
     _get_long_path_compatible_path,
     _is_relative_to,
-    _join_s3_paths,
 )
 from threading import Lock
 
@@ -325,7 +327,9 @@ def get_job_input_paths_by_asset_root(
 
     for manifest_properties in attachments.manifests:
         if manifest_properties.inputManifestPath:
-            key = _join_s3_paths(manifest_properties.inputManifestPath)
+            key = s3_settings.add_root_and_manifest_folder_prefix(
+                manifest_properties.inputManifestPath
+            )
             _, asset_manifest = get_asset_root_and_manifest_from_s3(
                 manifest_key=key,
                 s3_bucket=s3_settings.s3BucketName,
@@ -1243,6 +1247,94 @@ def mount_vfs_from_manifests(
         vfs_manager.start(session_dir=session_dir)
 
 
+def _full_path(root: str, relative: str) -> str:
+    """Join root and relative path, normalizing to forward slashes for consistent matching.
+
+    Uses posixpath.join for consistency with _transform_manifests_to_absolute_paths
+    in _job_download_helpers.py, which joins roots and manifest paths the same way.
+    """
+    return posixpath.join(root.replace("\\", "/"), relative)
+
+
+def _matches_any_filter(file_path: str, filters: list[str]) -> bool:
+    """
+    Check if a file path matches any of the given filters using glob-style matching.
+    Uses fnmatch for pattern matching (supports *, ?, [seq], [!seq]).
+    Note: fnmatch's '*' matches across '/' separators, so '*.png' matches 'subdir/frame.png'.
+    A filter ending with '/' matches all files under that directory.
+    Relative filters (not starting with '/' or '*') are auto-prepended with '*/' so they
+    match anywhere under the root — e.g. 'renders/*.exr' matches '*/renders/*.exr'.
+    The file_path should be the full path (root + relative).
+    """
+
+    def _is_absolute(p: str) -> bool:
+        return p.startswith(("/", "*")) or (len(p) >= 2 and p[1] == ":")
+
+    for f in filters:
+        if f.endswith("/"):
+            pattern = f + "*" if _is_absolute(f) else "*/" + f + "*"
+            if fnmatch(file_path, pattern):
+                return True
+        else:
+            pattern = f if _is_absolute(f) else "*/" + f
+            if fnmatch(file_path, pattern):
+                return True
+    return False
+
+
+def _filter_paths(
+    paths_by_root: dict[str, ManifestPathGroup],
+    path_filters: list[str],
+) -> dict[str, ManifestPathGroup]:
+    """
+    Filter ManifestPathGroups using glob-style include patterns.
+    Filters are matched against the full path (root + relative) to support
+    patterns like '*/renders/*.png'.
+    """
+    filtered: dict[str, ManifestPathGroup] = {}
+    for root, group in paths_by_root.items():
+        filtered_group = ManifestPathGroup()
+        for hash_alg, file_list in group.files_by_hash_alg.items():
+            matching = [
+                f for f in file_list if _matches_any_filter(_full_path(root, f.path), path_filters)
+            ]
+            if matching:
+                filtered_group.files_by_hash_alg[hash_alg] = matching
+                filtered_group.total_bytes += sum(f.size for f in matching)
+        if filtered_group.files_by_hash_alg:
+            filtered[root] = filtered_group
+    return filtered
+
+
+def filter_manifests(
+    manifests_by_root: dict[str, list[BaseAssetManifest]],
+    path_filters: list[str],
+) -> dict[str, list[BaseAssetManifest]]:
+    """
+    Filter BaseAssetManifest objects using glob-style include patterns.
+    Filters are matched against the full path (root + relative) to support
+    patterns like '*/renders/*.png'.
+    Returns a new dict with copied manifests whose paths have been filtered;
+    empty manifests are removed.
+    """
+    filtered: dict[str, list[BaseAssetManifest]] = {}
+    for root, manifest_list in manifests_by_root.items():
+        filtered_manifests = []
+        for manifest in manifest_list:
+            matching = [
+                p
+                for p in manifest.paths
+                if _matches_any_filter(_full_path(root, p.path), path_filters)
+            ]
+            if matching:
+                filtered_manifest = copy(manifest)
+                filtered_manifest.paths = matching
+                filtered_manifests.append(filtered_manifest)
+        if filtered_manifests:
+            filtered[root] = filtered_manifests
+    return filtered
+
+
 def _ensure_paths_within_directory(root_path: str, paths_relative_to_root: list[str]) -> None:
     """
     Validates the given paths to ensure that they are within the given root path.
@@ -1281,10 +1373,12 @@ class OutputDownloader:
         task_id: Optional[str] = None,
         session_action_id: Optional[str] = None,
         session: Optional[boto3.Session] = None,
+        include_filters: Optional[list[str]] = None,
     ) -> None:
         self.s3_settings = s3_settings
         self.session = session
-        self.outputs_by_root = get_job_output_paths_by_asset_root(
+        self.outputs_by_root: dict[str, ManifestPathGroup] = {}
+        self._initial_outputs_by_root = get_job_output_paths_by_asset_root(
             s3_settings=s3_settings,
             farm_id=farm_id,
             queue_id=queue_id,
@@ -1294,6 +1388,57 @@ class OutputDownloader:
             session_action_id=session_action_id,
             session=session,
         )
+        self._include_filter_groups: list[list[str]] = []
+        self._root_mappings: dict[str, str] = {}
+        if include_filters:
+            self._include_filter_groups.append(include_filters)
+        self._rebuild()
+
+    def _rebuild(self) -> None:
+        """Recompute outputs_by_root from initial state by applying root mappings then filters."""
+        # Start from a deep copy of the initial data so we never mutate it
+        rebuilt: dict[str, ManifestPathGroup] = {}
+        for root, group in self._initial_outputs_by_root.items():
+            new_group = ManifestPathGroup()
+            for hash_alg, file_list in group.files_by_hash_alg.items():
+                new_group.files_by_hash_alg[hash_alg] = [
+                    type(f)(path=f.path, hash=f.hash, size=f.size, mtime=f.mtime) for f in file_list
+                ]
+            new_group.total_bytes = group.total_bytes
+            rebuilt[root] = new_group
+
+        # Apply root mappings
+        for original_root, new_root in self._root_mappings.items():
+            if original_root not in rebuilt:
+                continue
+            if new_root == original_root:
+                continue
+            if new_root in rebuilt:
+                paths_in_new_root = rebuilt[new_root].get_all_paths()
+                for manifest_paths in rebuilt[original_root].files_by_hash_alg.values():
+                    for manifest_path in manifest_paths:
+                        if manifest_path.path in paths_in_new_root:
+                            new_name_prefix = (
+                                original_root.replace("/", "_").replace("\\", "_").replace(":", "_")
+                            )
+                            manifest_path.path = str(
+                                Path(manifest_path.path).with_name(
+                                    f"{new_name_prefix}_{manifest_path.path}"
+                                )
+                            )
+                rebuilt[new_root].combine_with_group(rebuilt[original_root])
+                del rebuilt[original_root]
+            else:
+                rebuilt = {
+                    key if key != original_root else new_root: value
+                    for key, value in rebuilt.items()
+                }
+
+        # Apply filter groups sequentially (AND between groups, OR within each group)
+        for filter_group in self._include_filter_groups:
+            rebuilt = _filter_paths(rebuilt, filter_group)
+
+        self.outputs_by_root = rebuilt
 
     def get_output_paths_by_root(self) -> dict[str, list[str]]:
         """
@@ -1305,16 +1450,38 @@ class OutputDownloader:
             output_paths_by_root[root] = path_group.get_all_paths()
         return output_paths_by_root
 
+    def apply_include_filters(self, include_filters: list[str]) -> None:
+        """Apply glob-style include filters against the current paths.
+
+        Filters are chained — calling this multiple times narrows the result further.
+        Filters are reapplied when set_root_path() is called so that absolute path
+        filters match against the updated roots.
+        """
+        self._include_filter_groups.append(include_filters)
+        self._rebuild()
+
     def set_root_path(self, original_root: str, new_root: str) -> None:
         """
         Changes the root path for downloading output files, (which is the root path
         saved in the S3 metadata for the output manifest by default,) with a custom path.
         (It will store the new root path as an absolute path.)
+
+        Stored include filters are reapplied after the root change so that absolute
+        path filters match against the updated root.
         """
         # Need to use absolute to not resolve symlinks, but need normpath to get rid of relative paths, i.e. '..'
         new_root = str(os.path.normpath(Path(new_root).absolute()))
 
-        if original_root not in self.outputs_by_root:
+        # Resolve the original_root: it may be an initial root or a previously mapped root.
+        # Find the initial root that maps to original_root (or original_root itself if unmapped).
+        initial_root = None
+        for init_root in self._initial_outputs_by_root:
+            mapped = self._root_mappings.get(init_root, init_root)
+            if mapped == original_root:
+                initial_root = init_root
+                break
+
+        if initial_root is None:
             raise ValueError(
                 f"The root path {original_root} was not found in output manifests {self.outputs_by_root}."
             )
@@ -1322,29 +1489,8 @@ class OutputDownloader:
         if new_root == original_root:
             return
 
-        if new_root in self.outputs_by_root:
-            # If the new_root already exists, and the file path in the original_root already exists
-            # among the file paths of the new_root, then prefix the file path with the original_root path.
-            # This is to avoid duplicate file paths in the new_root.
-            paths_in_new_root = self.outputs_by_root[new_root].get_all_paths()
-            for manifest_paths in self.outputs_by_root[original_root].files_by_hash_alg.values():
-                for manifest_path in manifest_paths:
-                    if manifest_path.path in paths_in_new_root:
-                        new_name_prefix = (
-                            original_root.replace("/", "_").replace("\\", "_").replace(":", "_")
-                        )
-                        manifest_path.path = str(
-                            Path(manifest_path.path).with_name(
-                                f"{new_name_prefix}_{manifest_path.path}"
-                            )
-                        )
-            self.outputs_by_root[new_root].combine_with_group(self.outputs_by_root[original_root])
-            del self.outputs_by_root[original_root]
-        else:
-            self.outputs_by_root = {
-                key if key != original_root else new_root: value
-                for key, value in self.outputs_by_root.items()
-            }
+        self._root_mappings[initial_root] = new_root
+        self._rebuild()
 
     def download_job_output(
         self,
