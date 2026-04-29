@@ -1377,6 +1377,7 @@ class OutputDownloader:
     ) -> None:
         self.s3_settings = s3_settings
         self.session = session
+        self.outputs_by_root: dict[str, ManifestPathGroup] = {}
         self._initial_outputs_by_root = get_job_output_paths_by_asset_root(
             s3_settings=s3_settings,
             farm_id=farm_id,
