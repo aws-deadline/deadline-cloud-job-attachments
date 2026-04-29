@@ -20,7 +20,7 @@ from functools import lru_cache
 from io import BufferedReader, BytesIO
 from math import trunc
 from pathlib import Path, PurePath
-from typing import Any, Callable, Generator, List, Optional, Tuple, Type, Union
+from typing import Any, Callable, Generator, List, Optional, Tuple, Type
 import shutil
 
 import boto3
@@ -948,10 +948,17 @@ class S3AssetUploader:
         except ClientError as exc:
             error_code = int(exc.response["ResponseMetadata"]["HTTPStatusCode"])
             if error_code == 403:
-                message = (
-                    f"Access denied. Ensure that the bucket is in the account {get_account_id(session=self._session)}, "
-                    "and your AWS IAM Role or User has the 's3:ListBucket' permission for this bucket."
-                )
+                account_id = get_account_id(session=self._session)
+                if account_id:
+                    message = (
+                        f"Access denied. Ensure that the bucket is in the account {account_id}, "
+                        "and your AWS IAM Role or User has the 's3:ListBucket' permission for this bucket."
+                    )
+                else:
+                    message = (
+                        "Access denied. Please check your AWS credentials, "
+                        "and ensure that your AWS IAM Role or User has the 's3:ListBucket' permission for this bucket."
+                    )
                 raise JobAttachmentsS3ClientError(
                     "checking if object exists", error_code, bucket, key, message
                 ) from exc
@@ -973,16 +980,11 @@ class S3AssetUploader:
         extra_args: dict[str, Any] = dict(),
     ) -> None:
         try:
-            extra_args_merged: dict[str, Union[str, dict]] = {
-                "ExpectedBucketOwner": get_account_id(session=self._session),
-                **extra_args,
-            }
-
             self._s3.upload_fileobj(
                 bytes,
                 bucket,
                 key,
-                ExtraArgs=extra_args_merged,
+                ExtraArgs=dict(extra_args),
                 Callback=progress_handler,
             )
         except ClientError as exc:

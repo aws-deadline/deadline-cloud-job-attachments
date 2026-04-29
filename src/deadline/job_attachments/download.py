@@ -63,7 +63,6 @@ from .progress_tracker import (
     ProgressTracker,
 )
 from ._aws.aws_clients import (
-    get_account_id,
     get_s3_client,
     get_s3_transfer_manager,
 )
@@ -121,7 +120,6 @@ def _get_asset_root_and_manifest_from_s3_with_last_modified(
         res = s3_client.get_object(
             Bucket=s3_bucket,
             Key=manifest_key,
-            ExpectedBucketOwner=get_account_id(session=session),
         )
         asset_root = _get_asset_root_from_metadata(metadata=res["Metadata"])
         contents = res["Body"].read().decode("utf-8")
@@ -570,7 +568,6 @@ def download_file(
         bucket=s3_bucket,
         key=s3_key,
         fileobj=str(local_file_path),
-        extra_args={"ExpectedBucketOwner": get_account_id(session=session)},
         subscribers=subscribers,
     )
 
@@ -618,7 +615,6 @@ def download_file(
                 bucket=s3_bucket,
                 key=s3_key,
                 fileobj=str(local_file_path),
-                extra_args={"ExpectedBucketOwner": get_account_id(session=session)},
                 subscribers=subscribers,
             )
             try:

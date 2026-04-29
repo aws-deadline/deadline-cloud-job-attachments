@@ -53,7 +53,6 @@ from ..exceptions import (
     JobAttachmentsError,
 )
 from .._aws.aws_clients import (
-    get_account_id,
     get_s3_client,
     get_s3_transfer_manager,
 )
@@ -442,7 +441,6 @@ def _download_file_with_transfer_manager(
         bucket=s3_bucket,
         key=s3_key,
         fileobj=str(local_file_path),
-        extra_args={"ExpectedBucketOwner": get_account_id(session=boto3_session)},
         subscribers=subscribers,
     )
 
@@ -464,7 +462,6 @@ def _download_file_with_get_object(
     res = s3_client.get_object(
         Bucket=s3_bucket,
         Key=s3_key,
-        ExpectedBucketOwner=get_account_id(session=boto3_session),
     )
     body = res["Body"]
     # Copy the data this amount at a time
