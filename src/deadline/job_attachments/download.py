@@ -1354,23 +1354,19 @@ def _ensure_paths_within_directory(root_path: str, paths_relative_to_root: list[
 
 
 class _BaseFilterableDownloader:
-    """Base class for downloaders that support root path mapping and glob-style include filtering.
-
-    Subclasses must set ``_initial_paths_by_root`` before calling ``__init__`` here.
-    """
-
-    _initial_paths_by_root: dict[str, ManifestPathGroup]
-    paths_by_root: dict[str, ManifestPathGroup]
+    """Base class for downloaders that support root path mapping and glob-style include filtering."""
 
     def __init__(
         self,
         s3_settings: JobAttachmentS3Settings,
-        session: Optional[boto3.Session],
-        include_filters: Optional[list[str]],
-        manifest_label: str,
+        initial_paths_by_root: dict[str, ManifestPathGroup],
+        session: Optional[boto3.Session] = None,
+        include_filters: Optional[list[str]] = None,
+        manifest_label: Optional[str] = None,
     ) -> None:
         self.s3_settings = s3_settings
         self.session = session
+        self._initial_paths_by_root = initial_paths_by_root
         self.paths_by_root: dict[str, ManifestPathGroup] = {}
         self._include_filter_groups: list[list[str]] = []
         self._root_mappings: dict[str, str] = {}
@@ -1458,8 +1454,9 @@ class _BaseFilterableDownloader:
                 break
 
         if initial_root is None:
+            label = f"{self._manifest_label} " if self._manifest_label else ""
             raise ValueError(
-                f"The root path {original_root} was not found in {self._manifest_label} manifests {self.paths_by_root}."
+                f"The root path {original_root} was not found in {label}manifests {self.paths_by_root}."
             )
 
         if new_root == original_root:
@@ -1468,7 +1465,7 @@ class _BaseFilterableDownloader:
         self._root_mappings[initial_root] = new_root
         self._rebuild()
 
-    def _download(
+    def download(
         self,
         file_conflict_resolution: Optional[
             FileConflictResolution
@@ -1550,7 +1547,7 @@ class OutputDownloader(_BaseFilterableDownloader):
         session: Optional[boto3.Session] = None,
         include_filters: Optional[list[str]] = None,
     ) -> None:
-        self._initial_paths_by_root = get_job_output_paths_by_asset_root(
+        initial = get_job_output_paths_by_asset_root(
             s3_settings=s3_settings,
             farm_id=farm_id,
             queue_id=queue_id,
@@ -1560,35 +1557,7 @@ class OutputDownloader(_BaseFilterableDownloader):
             session_action_id=session_action_id,
             session=session,
         )
-        super().__init__(s3_settings, session, include_filters, "output")
-
-    @property
-    def outputs_by_root(self) -> dict[str, ManifestPathGroup]:
-        return self.paths_by_root
-
-    def get_output_paths_by_root(self) -> dict[str, list[str]]:
-        """Returns a dict of asset root paths to lists of output paths."""
-        return self.get_paths_by_root()
-
-    def download_job_output(
-        self,
-        file_conflict_resolution: Optional[
-            FileConflictResolution
-        ] = FileConflictResolution.CREATE_COPY,
-        on_downloading_files: Optional[Callable[[ProgressReportMetadata], bool]] = None,
-    ) -> DownloadSummaryStatistics:
-        """
-        Downloads outputs files from S3 bucket to the asset root(s).
-
-        Args:
-            file_conflict_resolution: resolution method for file conflicts.
-            on_downloading_files: a callback to be called to periodically report progress to the caller.
-                The callback returns True if the operation should continue as normal, or False to cancel.
-
-        Returns:
-            The download summary statistics
-        """
-        return self._download(file_conflict_resolution, on_downloading_files)
+        super().__init__(s3_settings, initial, session, include_filters, "output")
 
 
 class InputDownloader(_BaseFilterableDownloader):
@@ -1606,38 +1575,12 @@ class InputDownloader(_BaseFilterableDownloader):
         session: Optional[boto3.Session] = None,
         include_filters: Optional[list[str]] = None,
     ) -> None:
-        self._initial_paths_by_root = get_job_input_paths_by_asset_root(
+        initial = get_job_input_paths_by_asset_root(
             s3_settings=s3_settings,
             attachments=attachments,
             session=session,
         )
-        super().__init__(s3_settings, session, include_filters, "input")
-
-    @property
-    def inputs_by_root(self) -> dict[str, ManifestPathGroup]:
-        return self.paths_by_root
-
-    def get_input_paths_by_root(self) -> dict[str, list[str]]:
-        """Returns a dict of asset root paths to lists of input paths."""
-        return self.get_paths_by_root()
-
-    def download_job_input(
-        self,
-        file_conflict_resolution: Optional[
-            FileConflictResolution
-        ] = FileConflictResolution.CREATE_COPY,
-        on_downloading_files: Optional[Callable[[ProgressReportMetadata], bool]] = None,
-    ) -> DownloadSummaryStatistics:
-        """Downloads input files from S3 bucket to the asset root(s).
-
-        Args:
-            file_conflict_resolution: resolution method for file conflicts.
-            on_downloading_files: a callback to periodically report progress.
-
-        Returns:
-            The download summary statistics
-        """
-        return self._download(file_conflict_resolution, on_downloading_files)
+        super().__init__(s3_settings, initial, session, include_filters, "input")
 
 
 def _get_manifests_by_session_action_id(
