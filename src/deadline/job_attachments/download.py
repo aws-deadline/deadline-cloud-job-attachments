@@ -1353,52 +1353,37 @@ def _ensure_paths_within_directory(root_path: str, paths_relative_to_root: list[
     return
 
 
-class OutputDownloader:
-    """
-    Handler for downloading all output files from the given job, with optional step and task-level granularity.
-    If no session is provided the default credentials path will be used, see:
-    https://boto3.amazonaws.com/v1/documentation/api/latest/guide/credentials.html#configuring-credentials
+class _BaseFilterableDownloader:
+    """Base class for downloaders that support root path mapping and glob-style include filtering.
 
-    Path mapping for cross-OS downloads is handled at the CLI layer via set_root_path(),
-    consistent with how queue sync-output applies path mapping externally.
+    Subclasses must set ``_initial_paths_by_root`` before calling ``__init__`` here.
     """
+
+    _initial_paths_by_root: dict[str, ManifestPathGroup]
+    paths_by_root: dict[str, ManifestPathGroup]
 
     def __init__(
         self,
         s3_settings: JobAttachmentS3Settings,
-        farm_id: str,
-        queue_id: str,
-        job_id: str,
-        step_id: Optional[str] = None,
-        task_id: Optional[str] = None,
-        session_action_id: Optional[str] = None,
-        session: Optional[boto3.Session] = None,
-        include_filters: Optional[list[str]] = None,
+        session: Optional[boto3.Session],
+        include_filters: Optional[list[str]],
+        manifest_label: str,
     ) -> None:
         self.s3_settings = s3_settings
         self.session = session
-        self.outputs_by_root: dict[str, ManifestPathGroup] = {}
-        self._initial_outputs_by_root = get_job_output_paths_by_asset_root(
-            s3_settings=s3_settings,
-            farm_id=farm_id,
-            queue_id=queue_id,
-            job_id=job_id,
-            step_id=step_id,
-            task_id=task_id,
-            session_action_id=session_action_id,
-            session=session,
-        )
+        self.paths_by_root: dict[str, ManifestPathGroup] = {}
         self._include_filter_groups: list[list[str]] = []
         self._root_mappings: dict[str, str] = {}
+        self._manifest_label = manifest_label
         if include_filters:
             self._include_filter_groups.append(include_filters)
         self._rebuild()
 
     def _rebuild(self) -> None:
-        """Recompute outputs_by_root from initial state by applying root mappings then filters."""
+        """Recompute paths_by_root from initial state by applying root mappings then filters."""
         # Start from a deep copy of the initial data so we never mutate it
         rebuilt: dict[str, ManifestPathGroup] = {}
-        for root, group in self._initial_outputs_by_root.items():
+        for root, group in self._initial_paths_by_root.items():
             new_group = ManifestPathGroup()
             for hash_alg, file_list in group.files_by_hash_alg.items():
                 new_group.files_by_hash_alg[hash_alg] = [
@@ -1438,17 +1423,11 @@ class OutputDownloader:
         for filter_group in self._include_filter_groups:
             rebuilt = _filter_paths(rebuilt, filter_group)
 
-        self.outputs_by_root = rebuilt
+        self.paths_by_root = rebuilt
 
-    def get_output_paths_by_root(self) -> dict[str, list[str]]:
-        """
-        Returns a dict of asset root paths to lists of output paths.
-        """
-        output_paths_by_root: dict[str, list[str]] = {}
-
-        for root, path_group in self.outputs_by_root.items():
-            output_paths_by_root[root] = path_group.get_all_paths()
-        return output_paths_by_root
+    def get_paths_by_root(self) -> dict[str, list[str]]:
+        """Returns a dict of asset root paths to lists of file paths."""
+        return {root: group.get_all_paths() for root, group in self.paths_by_root.items()}
 
     def apply_include_filters(self, include_filters: list[str]) -> None:
         """Apply glob-style include filters against the current paths.
@@ -1461,10 +1440,7 @@ class OutputDownloader:
         self._rebuild()
 
     def set_root_path(self, original_root: str, new_root: str) -> None:
-        """
-        Changes the root path for downloading output files, (which is the root path
-        saved in the S3 metadata for the output manifest by default,) with a custom path.
-        (It will store the new root path as an absolute path.)
+        """Changes the root path for downloading files with a custom path.
 
         Stored include filters are reapplied after the root change so that absolute
         path filters match against the updated root.
@@ -1475,7 +1451,7 @@ class OutputDownloader:
         # Resolve the original_root: it may be an initial root or a previously mapped root.
         # Find the initial root that maps to original_root (or original_root itself if unmapped).
         initial_root = None
-        for init_root in self._initial_outputs_by_root:
+        for init_root in self._initial_paths_by_root:
             mapped = self._root_mappings.get(init_root, init_root)
             if mapped == original_root:
                 initial_root = init_root
@@ -1483,7 +1459,7 @@ class OutputDownloader:
 
         if initial_root is None:
             raise ValueError(
-                f"The root path {original_root} was not found in output manifests {self.outputs_by_root}."
+                f"The root path {original_root} was not found in {self._manifest_label} manifests {self.paths_by_root}."
             )
 
         if new_root == original_root:
@@ -1492,28 +1468,25 @@ class OutputDownloader:
         self._root_mappings[initial_root] = new_root
         self._rebuild()
 
-    def download_job_output(
+    def _download(
         self,
         file_conflict_resolution: Optional[
             FileConflictResolution
         ] = FileConflictResolution.CREATE_COPY,
         on_downloading_files: Optional[Callable[[ProgressReportMetadata], bool]] = None,
     ) -> DownloadSummaryStatistics:
-        """
-        Downloads outputs files from S3 bucket to the asset root(s).
+        """Downloads files from S3 bucket to the asset root(s).
 
         Args:
             file_conflict_resolution: resolution method for file conflicts.
-            on_downloading_files: a callback to be called to periodically report progress to the caller.
-                The callback returns True if the operation should continue as normal, or False to cancel.
+            on_downloading_files: a callback to periodically report progress.
 
         Returns:
             The download summary statistics
         """
-        # Sets up progress tracker to report download progress back to the caller.
         total_bytes: int = 0
         total_files: int = 0
-        for path_group in self.outputs_by_root.values():
+        for path_group in self.paths_by_root.values():
             total_bytes += path_group.total_bytes
             total_files += len(path_group.get_all_paths())
 
@@ -1528,8 +1501,8 @@ class OutputDownloader:
         downloaded_files_paths_by_root: DefaultDict[str, list[str]] = DefaultDict(list)
 
         try:
-            for root, output_path_group in self.outputs_by_root.items():
-                for hash_alg, path_list in output_path_group.files_by_hash_alg.items():
+            for root, path_group in self.paths_by_root.items():
+                for hash_alg, path_list in path_group.files_by_hash_alg.items():
                     # Validate the file paths to see if they are under the given download directory.
                     _ensure_paths_within_directory(root, [file.path for file in path_list])
 
@@ -1555,13 +1528,75 @@ class OutputDownloader:
         return progress_tracker.get_download_summary_statistics(downloaded_files_paths_by_root)
 
 
-class InputDownloader:
+class OutputDownloader(_BaseFilterableDownloader):
+    """
+    Handler for downloading all output files from the given job, with optional step and task-level granularity.
+    If no session is provided the default credentials path will be used, see:
+    https://boto3.amazonaws.com/v1/documentation/api/latest/guide/credentials.html#configuring-credentials
+
+    Path mapping for cross-OS downloads is handled at the CLI layer via set_root_path(),
+    consistent with how queue sync-output applies path mapping externally.
+    """
+
+    def __init__(
+        self,
+        s3_settings: JobAttachmentS3Settings,
+        farm_id: str,
+        queue_id: str,
+        job_id: str,
+        step_id: Optional[str] = None,
+        task_id: Optional[str] = None,
+        session_action_id: Optional[str] = None,
+        session: Optional[boto3.Session] = None,
+        include_filters: Optional[list[str]] = None,
+    ) -> None:
+        self._initial_paths_by_root = get_job_output_paths_by_asset_root(
+            s3_settings=s3_settings,
+            farm_id=farm_id,
+            queue_id=queue_id,
+            job_id=job_id,
+            step_id=step_id,
+            task_id=task_id,
+            session_action_id=session_action_id,
+            session=session,
+        )
+        super().__init__(s3_settings, session, include_filters, "output")
+
+    @property
+    def outputs_by_root(self) -> dict[str, ManifestPathGroup]:
+        return self.paths_by_root
+
+    def get_output_paths_by_root(self) -> dict[str, list[str]]:
+        """Returns a dict of asset root paths to lists of output paths."""
+        return self.get_paths_by_root()
+
+    def download_job_output(
+        self,
+        file_conflict_resolution: Optional[
+            FileConflictResolution
+        ] = FileConflictResolution.CREATE_COPY,
+        on_downloading_files: Optional[Callable[[ProgressReportMetadata], bool]] = None,
+    ) -> DownloadSummaryStatistics:
+        """
+        Downloads outputs files from S3 bucket to the asset root(s).
+
+        Args:
+            file_conflict_resolution: resolution method for file conflicts.
+            on_downloading_files: a callback to be called to periodically report progress to the caller.
+                The callback returns True if the operation should continue as normal, or False to cancel.
+
+        Returns:
+            The download summary statistics
+        """
+        return self._download(file_conflict_resolution, on_downloading_files)
+
+
+class InputDownloader(_BaseFilterableDownloader):
     """
     Handler for downloading all input files from a given job, with optional include filtering.
 
-    Mirrors OutputDownloader but uses get_job_input_paths_by_asset_root() to fetch
-    input manifests from the job's attachments metadata rather than S3 output listings.
-    Inputs are job-level (no step/task scoping).
+    Uses get_job_input_paths_by_asset_root() to fetch input manifests from the job's
+    attachments metadata. Inputs are job-level (no step/task scoping).
     """
 
     def __init__(
@@ -1571,103 +1606,20 @@ class InputDownloader:
         session: Optional[boto3.Session] = None,
         include_filters: Optional[list[str]] = None,
     ) -> None:
-        self.s3_settings = s3_settings
-        self.session = session
-        self.inputs_by_root: dict[str, ManifestPathGroup] = {}
-        self._initial_inputs_by_root = get_job_input_paths_by_asset_root(
+        self._initial_paths_by_root = get_job_input_paths_by_asset_root(
             s3_settings=s3_settings,
             attachments=attachments,
             session=session,
         )
-        self._include_filter_groups: list[list[str]] = []
-        self._root_mappings: dict[str, str] = {}
-        if include_filters:
-            self._include_filter_groups.append(include_filters)
-        self._rebuild()
+        super().__init__(s3_settings, session, include_filters, "input")
 
-    def _rebuild(self) -> None:
-        """Recompute inputs_by_root from initial state by applying root mappings then filters."""
-        rebuilt: dict[str, ManifestPathGroup] = {}
-        for root, group in self._initial_inputs_by_root.items():
-            new_group = ManifestPathGroup()
-            for hash_alg, file_list in group.files_by_hash_alg.items():
-                new_group.files_by_hash_alg[hash_alg] = [
-                    type(f)(path=f.path, hash=f.hash, size=f.size, mtime=f.mtime) for f in file_list
-                ]
-            new_group.total_bytes = group.total_bytes
-            rebuilt[root] = new_group
-
-        # Apply root mappings
-        for original_root, new_root in self._root_mappings.items():
-            if original_root not in rebuilt:
-                continue
-            if new_root == original_root:
-                continue
-            if new_root in rebuilt:
-                paths_in_new_root = rebuilt[new_root].get_all_paths()
-                for manifest_paths in rebuilt[original_root].files_by_hash_alg.values():
-                    for manifest_path in manifest_paths:
-                        if manifest_path.path in paths_in_new_root:
-                            new_name_prefix = (
-                                original_root.replace("/", "_").replace("\\", "_").replace(":", "_")
-                            )
-                            manifest_path.path = str(
-                                Path(manifest_path.path).with_name(
-                                    f"{new_name_prefix}_{manifest_path.path}"
-                                )
-                            )
-                rebuilt[new_root].combine_with_group(rebuilt[original_root])
-                del rebuilt[original_root]
-            else:
-                rebuilt = {
-                    key if key != original_root else new_root: value
-                    for key, value in rebuilt.items()
-                }
-
-        for filter_group in self._include_filter_groups:
-            rebuilt = _filter_paths(rebuilt, filter_group)
-
-        self.inputs_by_root = rebuilt
+    @property
+    def inputs_by_root(self) -> dict[str, ManifestPathGroup]:
+        return self.paths_by_root
 
     def get_input_paths_by_root(self) -> dict[str, list[str]]:
         """Returns a dict of asset root paths to lists of input paths."""
-        return {root: group.get_all_paths() for root, group in self.inputs_by_root.items()}
-
-    def apply_include_filters(self, include_filters: list[str]) -> None:
-        """Apply glob-style include filters against the current paths.
-
-        Filters are chained — calling this multiple times narrows the result further.
-        Filters are reapplied when set_root_path() is called so that absolute path
-        filters match against the updated roots.
-        """
-        self._include_filter_groups.append(include_filters)
-        self._rebuild()
-
-    def set_root_path(self, original_root: str, new_root: str) -> None:
-        """Changes the root path for downloading input files with a custom path.
-
-        Stored include filters are reapplied after the root change so that absolute
-        path filters match against the updated root.
-        """
-        new_root = str(os.path.normpath(Path(new_root).absolute()))
-
-        initial_root = None
-        for init_root in self._initial_inputs_by_root:
-            mapped = self._root_mappings.get(init_root, init_root)
-            if mapped == original_root:
-                initial_root = init_root
-                break
-
-        if initial_root is None:
-            raise ValueError(
-                f"The root path {original_root} was not found in input manifests {self.inputs_by_root}."
-            )
-
-        if new_root == original_root:
-            return
-
-        self._root_mappings[initial_root] = new_root
-        self._rebuild()
+        return self.get_paths_by_root()
 
     def download_job_input(
         self,
@@ -1685,47 +1637,7 @@ class InputDownloader:
         Returns:
             The download summary statistics
         """
-        total_bytes: int = 0
-        total_files: int = 0
-        for path_group in self.inputs_by_root.values():
-            total_bytes += path_group.total_bytes
-            total_files += len(path_group.get_all_paths())
-
-        progress_tracker = ProgressTracker(
-            status=ProgressStatus.DOWNLOAD_IN_PROGRESS,
-            total_files=total_files,
-            total_bytes=total_bytes,
-            on_progress_callback=on_downloading_files,
-        )
-
-        start_time = time.perf_counter()
-        downloaded_files_paths_by_root: DefaultDict[str, list[str]] = DefaultDict(list)
-
-        try:
-            for root, input_path_group in self.inputs_by_root.items():
-                for hash_alg, path_list in input_path_group.files_by_hash_alg.items():
-                    _ensure_paths_within_directory(root, [file.path for file in path_list])
-
-                    downloaded_files_paths = download_files(
-                        files=path_list,
-                        hash_algorithm=hash_alg,
-                        local_download_dir=root,
-                        s3_settings=self.s3_settings,
-                        session=self.session,
-                        progress_tracker=progress_tracker,
-                        file_conflict_resolution=file_conflict_resolution,
-                    )
-                    downloaded_files_paths_by_root[root].extend(downloaded_files_paths)
-        except AssetSyncCancelledError:
-            downloaded_files = progress_tracker.processed_files
-            raise AssetSyncCancelledError(
-                "Download cancelled. "
-                f"(Downloaded {downloaded_files} file{'' if downloaded_files == 1 else 's'} before cancellation.)"
-            )
-
-        progress_tracker.total_time = time.perf_counter() - start_time
-
-        return progress_tracker.get_download_summary_statistics(downloaded_files_paths_by_root)
+        return self._download(file_conflict_resolution, on_downloading_files)
 
 
 def _get_manifests_by_session_action_id(
