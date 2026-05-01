@@ -1354,7 +1354,10 @@ class TestUpload:
 
         uploader._s3 = s3
 
-        with stubber:
+        with stubber, patch(
+            f"{deadline.__package__}.job_attachments.upload.get_account_id",
+            return_value="123456789012",
+        ):
             with pytest.raises(JobAttachmentsS3ClientError) as err:
                 uploader.file_already_uploaded(
                     self.job_attachment_s3_settings.s3BucketName, "test_key"

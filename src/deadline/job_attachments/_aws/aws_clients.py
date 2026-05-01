@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import logging
 from functools import lru_cache
 from typing import Optional
 
@@ -21,6 +22,8 @@ from .aws_config import (
 )
 
 MAX_SIZE_CACHE = 128
+
+logger = logging.getLogger("deadline.job_attachments")
 
 
 # Should create a new botocore session since botocore session may be modified by boto3 session/client using it
@@ -82,7 +85,9 @@ def get_s3_client(
         Add the expected bucket owner to the params if the API operation to run can use it.
         """
         if "ExpectedBucketOwner" in model.input_shape.members:
-            params["ExpectedBucketOwner"] = get_account_id(session=session)
+            account_id = get_account_id(session=session)
+            if account_id:
+                params["ExpectedBucketOwner"] = account_id
 
     client.meta.events.register("provide-client-params.s3.*", add_expected_bucket_owner)
 
@@ -96,28 +101,32 @@ def get_s3_transfer_manager(s3_client: BaseClient):
 
 
 @lru_cache(maxsize=MAX_SIZE_CACHE)
-def get_sts_client(session: Optional[boto3.session.Session] = None) -> BaseClient:
+def get_account_id(session: Optional[boto3.session.Session] = None) -> Optional[str]:
     """
-    Get a boto3 sts client to make API calls to STS.
+    Get the account id for the current session, or ``None`` if it cannot be determined.
+
+    Sources the account from the session's frozen credentials, which botocore populates
+    automatically for credential providers that know the account (e.g. AssumeRole extracts
+    it from the assumed-role ARN, and static credentials can be paired with
+    ``AWS_ACCOUNT_ID`` / ``aws_account_id`` in config). Falls back to ``sts:GetCallerIdentity``
+    only when the credential provider did not supply an account id.
     """
     if session is None:
         session = get_boto3_session()
 
-    return session.client("sts")
+    credentials = session.get_credentials()
+    if credentials is not None:
+        frozen = credentials.get_frozen_credentials()
+        account_id = getattr(frozen, "account_id", None)
+        if account_id:
+            return account_id
 
-
-@lru_cache(maxsize=MAX_SIZE_CACHE)
-def get_caller_identity(
-    session: Optional[boto3.session.Session] = None,
-) -> dict[str, str]:
-    """
-    Get the caller identity for the current session.
-    """
-    return get_sts_client(session).get_caller_identity()
-
-
-def get_account_id(session: Optional[boto3.session.Session] = None) -> str:
-    """
-    Get the account id for the current session.
-    """
-    return get_caller_identity(session)["Account"]
+    # Fallback for older botocore or credential providers that don't populate account_id
+    try:
+        return session.client("sts").get_caller_identity()["Account"]
+    except Exception:
+        logger.debug(
+            "Could not determine AWS account ID from session credentials or STS. "
+            "S3 requests will not include the ExpectedBucketOwner header."
+        )
+        return None

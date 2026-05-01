@@ -2096,9 +2096,6 @@ class TestFullDownload:
             f"{deadline.__package__}.job_attachments.download.get_s3_transfer_manager",
             return_value=mock_transfer_manager,
         ), patch(
-            f"{deadline.__package__}.job_attachments.download.get_account_id",
-            return_value="123456789012",
-        ), patch(
             f"{deadline.__package__}.job_attachments._utils._is_windows_long_path_registry_enabled",
             return_value=False,  # Ensure UNC prefix is used for Windows
         ), patch(
