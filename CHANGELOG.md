@@ -1,7 +1,23 @@
+## 0.1.0 (2026-05-01)
+
+### BREAKING CHANGES
+* `OutputDownloader` methods have been renamed as part of unifying the downloader API to also support downloading inputs. (#33)
+    * download_job_output() → download()
+    * get_output_paths_by_root() → get_paths_by_root()
+    * outputs_by_root → paths_by_root
+* get_sts_client() and get_caller_identity() have been removed (#31)
+
+### Features
+* Added a new `InputDownloader` class for downloading job input files with glob-style include filtering, mirroring the existing `OutputDownloader` capability. (#33)
+* STS is no longer a required dependency, but may be used on older credentials providers when no account ID is provided. If your code relied on the previous STS-based behavior, no action is needed — the fallback still works — but you may be able to remove the STS endpoint for credential providers that already know the account (e.g., AssumeRole, static credentials with `AWS_ACCOUNT_ID`). (#31)
+
+
 ## 0.0.2 (2026-04-29)
 
 ### Features
 * Added glob-style include filtering support for output downloads. You can now pass `include_filters` to `OutputDownloader` to selectively download only files matching specified patterns, and use `apply_include_filters()` to chain filters. (#21)
+
+
 ## 0.0.1 (2026-04-23)
 
 Initial release of `deadline-job-attachments`, migrated from [aws-deadline/deadline-cloud@`83a363d8`](https://github.com/aws-deadline/deadline-cloud/commit/83a363d8).
