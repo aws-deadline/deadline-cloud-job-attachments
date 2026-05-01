@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+from abc import ABC
 import json
 import os
 import posixpath
@@ -1353,7 +1354,7 @@ def _ensure_paths_within_directory(root_path: str, paths_relative_to_root: list[
     return
 
 
-class _BaseFilterableDownloader:
+class _BaseFilterableDownloader(ABC):
     """Base class for downloaders that support root path mapping and glob-style include filtering."""
 
     def __init__(
@@ -1456,7 +1457,7 @@ class _BaseFilterableDownloader:
         if initial_root is None:
             label = f"{self._manifest_label} " if self._manifest_label else ""
             raise ValueError(
-                f"The root path {original_root} was not found in {label}manifests {self.paths_by_root}."
+                f"The root path {original_root} was not found in {label}manifests. Available roots: {list(self.paths_by_root.keys())}"
             )
 
         if new_root == original_root:
