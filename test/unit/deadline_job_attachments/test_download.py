@@ -200,7 +200,7 @@ def assert_download_task_output(
     manifest_version: ManifestVersion,
 ):
     """
-    Assert that the expected files are downloaded when download_job_output is called with a task id.
+    Assert that the expected files are downloaded when download is called with a task id.
     """
     with patch(
         f"{deadline.__package__}.job_attachments.download._get_asset_root_from_metadata",
@@ -218,7 +218,7 @@ def assert_download_task_output(
             session_action_id="sessionaction-9-9",
         )
 
-        summary_statistics = output_downloader.download_job_output(
+        summary_statistics = output_downloader.download(
             on_downloading_files=mock_on_downloading_files,
         )
 
@@ -251,7 +251,7 @@ def assert_download_step_output(
     manifest_version: ManifestVersion,
 ):
     """
-    Assert that the expected files are downloaded when download_job_output is called with a step id.
+    Assert that the expected files are downloaded when download is called with a step id.
     """
     with patch(
         f"{deadline.__package__}.job_attachments.download._get_asset_root_from_metadata",
@@ -268,7 +268,7 @@ def assert_download_step_output(
             task_id=None,
         )
 
-        summary_statistics = output_downloader.download_job_output(
+        summary_statistics = output_downloader.download(
             on_downloading_files=mock_on_downloading_files,
         )
 
@@ -285,7 +285,7 @@ def assert_download_step_output(
     )
 
 
-def assert_download_job_output(
+def assert_download_output(
     s3_settings: JobAttachmentS3Settings,
     farm_id,
     queue_id,
@@ -295,7 +295,7 @@ def assert_download_job_output(
     manifest_version: ManifestVersion,
 ):
     """
-    Assert that the expected files are downloaded when download_job_output is called.
+    Assert that the expected files are downloaded when download is called.
     """
     with patch(
         f"{deadline.__package__}.job_attachments.download._get_asset_root_from_metadata",
@@ -311,7 +311,7 @@ def assert_download_job_output(
             step_id=None,
             task_id=None,
         )
-        summary_statistics = output_downloader.download_job_output(
+        summary_statistics = output_downloader.download(
             on_downloading_files=mock_on_downloading_files,
         )
 
@@ -436,7 +436,7 @@ def assert_progress_tracker_values(
         )
 
 
-def assert_download_job_output_with_task_id_and_no_step_id_throws_error(
+def assert_download_output_with_task_id_and_no_step_id_throws_error(
     s3_settings: JobAttachmentS3Settings, farm_id, queue_id
 ):
     """
@@ -453,7 +453,7 @@ def assert_download_job_output_with_task_id_and_no_step_id_throws_error(
             step_id=None,
             task_id="task-1-1",
         )
-        output_downloader.download_job_output(
+        output_downloader.download(
             on_downloading_files=mock_on_downloading_files,
         )
 
@@ -1104,10 +1104,10 @@ class TestFullDownload:
             manifest_version=manifest_version,
         )
 
-    def test_download_job_output(
+    def test_download_output(
         self, farm_id, queue_id, tmp_path: Path, manifest_version: ManifestVersion
     ):
-        assert_download_job_output(
+        assert_download_output(
             self.job_attachment_settings,
             farm_id,
             queue_id,
@@ -1160,7 +1160,7 @@ class TestFullDownload:
             manifest_version=manifest_version,
         )
 
-    def test_OutputDownloader_get_output_paths_by_root(
+    def test_OutputDownloader_get_paths_by_root(
         self,
         farm_id,
         queue_id,
@@ -1179,7 +1179,7 @@ class TestFullDownload:
                 task_id=None,
             )
 
-        assert output_downloader.get_output_paths_by_root() == {
+        assert output_downloader.get_paths_by_root() == {
             str(tmp_path.resolve()): [
                 "test/test12.txt",
                 "test/test14.txt",
@@ -1218,7 +1218,7 @@ class TestFullDownload:
             original_root=str(tmp_path.resolve()), new_root=new_root_path
         )
 
-        assert output_downloader.get_output_paths_by_root() == {
+        assert output_downloader.get_paths_by_root() == {
             new_root_path: [
                 "test/test12.txt",
                 "test/test14.txt",
@@ -1269,7 +1269,7 @@ class TestFullDownload:
             original_root=str(tmp_path.resolve()), new_root=str(sym_path)
         )
 
-        assert output_downloader.get_output_paths_by_root() == {
+        assert output_downloader.get_paths_by_root() == {
             str(tmp_path / "symlink_folder"): [
                 "test/test2.txt",
                 "test/test3.txt",
@@ -1300,9 +1300,7 @@ class TestFullDownload:
         with pytest.raises(ValueError):
             output_downloader.set_root_path(original_root="/wrong_root", new_root="/new_root_path")
 
-    def test_OutputDownloader_download_job_output_when_skip(
-        self, farm_id, queue_id, tmp_path: Path
-    ):
+    def test_OutputDownloader_download_when_skip(self, farm_id, queue_id, tmp_path: Path):
         """
         When path conflicts occur during file download and the resolution method is set to SKIP,
         test whether the files has actually been skipped.
@@ -1316,7 +1314,7 @@ class TestFullDownload:
         # Record the last metadata modification times for each file.
         modified_time_before_second_trial = [path.stat().st_ctime for path in expected_files]
         # Re-download the files with the SKIP option.
-        output_downloader.download_job_output(file_conflict_resolution=FileConflictResolution.SKIP)
+        output_downloader.download(file_conflict_resolution=FileConflictResolution.SKIP)
         # Check that no additional files were added during the second download.
         assert set(expected_files) == set(
             [path for path in tmp_path.glob("**/*") if path.is_file()]
@@ -1360,15 +1358,13 @@ class TestFullDownload:
             )
         # First download the files and check if the files are there.
         # (Ensure that only the expected files are there and no extras.)
-        output_downloader.download_job_output()
+        output_downloader.download()
         assert set(expected_files) == set(
             [path for path in tmp_path.glob("**/*") if path.is_file()]
         )
         return expected_files, output_downloader
 
-    def test_OutputDownloader_download_job_output_when_overwrite(
-        self, farm_id, queue_id, tmp_path: Path
-    ):
+    def test_OutputDownloader_download_when_overwrite(self, farm_id, queue_id, tmp_path: Path):
         """
         When path conflicts occur during file download and the resolution method is set to OVERWRITE,
         test whether the files has actually been overwritten.
@@ -1382,9 +1378,7 @@ class TestFullDownload:
         # Record the last metadata modification times for each file.
         modified_time_before_overwrite = [path.stat().st_ctime for path in expected_files]
         # Re-download the files with the OVERWRITE option.
-        output_downloader.download_job_output(
-            file_conflict_resolution=FileConflictResolution.OVERWRITE
-        )
+        output_downloader.download(file_conflict_resolution=FileConflictResolution.OVERWRITE)
         # Check that no additional files were added during the second download.
         assert set(expected_files) == set(
             [path for path in tmp_path.glob("**/*") if path.is_file()]
@@ -1399,9 +1393,7 @@ class TestFullDownload:
             ):
                 assert time_before < time_after
 
-    def test_OutputDownloader_download_job_output_when_create_copy(
-        self, farm_id, queue_id, tmp_path: Path
-    ):
+    def test_OutputDownloader_download_when_create_copy(self, farm_id, queue_id, tmp_path: Path):
         expected_files = [
             tmp_path / "test1.txt",
             tmp_path / "test" / "test2.txt",
@@ -1452,19 +1444,17 @@ class TestFullDownload:
             )
 
         # First download the files and check if the files are there.
-        output_downloader.download_job_output()
+        output_downloader.download()
         assert set(expected_files) == set(
             [path for path in tmp_path.glob("**/*") if path.is_file()]
         )
         # Re-download the files with the CREATE_COPY option.
-        output_downloader.download_job_output(
-            file_conflict_resolution=FileConflictResolution.CREATE_COPY
-        )
+        output_downloader.download(file_conflict_resolution=FileConflictResolution.CREATE_COPY)
         assert set(expected_files_after_create_copy) == set(
             [path for path in tmp_path.glob("**/*") if path.is_file()]
         )
 
-    def test_OutputDownloader_download_job_output_unknown_resolution_throws_exception(
+    def test_OutputDownloader_download_unknown_resolution_throws_exception(
         self, farm_id, queue_id, tmp_path: Path
     ):
         with patch(
@@ -1480,15 +1470,11 @@ class TestFullDownload:
                 task_id=None,
             )
 
-        output_downloader.download_job_output()
+        output_downloader.download()
         with pytest.raises(ValueError):
-            output_downloader.download_job_output(
-                file_conflict_resolution=FileConflictResolution(99)
-            )
+            output_downloader.download(file_conflict_resolution=FileConflictResolution(99))
 
-    def test_OutputDownloader_download_job_output_to_new_asset_root(
-        self, farm_id, queue_id, tmp_path: Path
-    ):
+    def test_OutputDownloader_download_to_new_asset_root(self, farm_id, queue_id, tmp_path: Path):
         expected_files = [
             tmp_path / "test1.txt",
             tmp_path / "test" / "test2.txt",
@@ -1520,7 +1506,7 @@ class TestFullDownload:
             )
 
         output_downloader.set_root_path("/test_root", str(tmp_path.resolve()))
-        output_downloader.download_job_output()
+        output_downloader.download()
         assert set(expected_files) == set(
             [path for path in tmp_path.glob("**/*") if path.is_file()]
         )
@@ -1580,7 +1566,7 @@ class TestFullDownload:
             },
         ],
     )
-    def test_OutputDownloader_download_job_output_posix_invalid_file_path_fails(
+    def test_OutputDownloader_download_posix_invalid_file_path_fails(
         self, farm_id, queue_id, outputs_by_root: dict[str, ManifestPathGroup]
     ):
         self.create_output_downloaded_and_validate_path(farm_id, outputs_by_root, queue_id)
@@ -1601,7 +1587,7 @@ class TestFullDownload:
         with patch(
             f"{deadline.__package__}.job_attachments.download.download_files", return_value=[]
         ), pytest.raises((PathOutsideDirectoryError, ValueError)):
-            output_downloader.download_job_output()
+            output_downloader.download()
 
     @pytest.mark.skipif(
         sys.platform != "win32",
@@ -1658,7 +1644,7 @@ class TestFullDownload:
             },
         ],
     )
-    def test_OutputDownloader_download_job_output_windows_invalid_file_path_fails(
+    def test_OutputDownloader_download_windows_invalid_file_path_fails(
         self, farm_id, queue_id, outputs_by_root: dict[str, ManifestPathGroup]
     ):
         self.create_output_downloaded_and_validate_path(farm_id, outputs_by_root, queue_id)
@@ -2338,7 +2324,7 @@ class TestFullDownloadPrefixesWithSlashes:
         self, farm_id, queue_id, tmp_path: Path, manifest_version: ManifestVersion
     ):
         assert self.queue.jobAttachmentSettings
-        assert_download_job_output(
+        assert_download_output(
             self.queue.jobAttachmentSettings,
             farm_id,
             queue_id,

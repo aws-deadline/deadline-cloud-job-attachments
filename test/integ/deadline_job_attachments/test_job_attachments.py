@@ -1011,7 +1011,7 @@ def test_download_outputs_with_job_id_step_id_task_id_and_download_directory(
             step_id=sync_outputs.step0_id,
             task_id=sync_outputs.step0_task0_id,
         )
-        job_output_downloader.download_job_output()
+        job_output_downloader.download()
 
         # THEN
         assert Path(job_attachment_test.ASSET_ROOT / sync_outputs.step0_task0_output_file).exists()
@@ -1046,7 +1046,7 @@ def test_download_outputs_with_job_id_step_id_and_download_directory(
             step_id=sync_outputs.step0_id,
             task_id=None,
         )
-        job_output_downloader.download_job_output()
+        job_output_downloader.download()
 
         # THEN
         assert Path(job_attachment_test.ASSET_ROOT / sync_outputs.step0_task0_output_file).exists()
@@ -1082,7 +1082,7 @@ def test_download_outputs_with_job_id_and_download_directory(
             step_id=None,
             task_id=None,
         )
-        job_output_downloader.download_job_output()
+        job_output_downloader.download()
 
         # THEN
         assert Path(job_attachment_test.ASSET_ROOT / sync_outputs.step0_task0_output_file).exists()
@@ -1500,7 +1500,7 @@ def test_download_outputs_bucket_wrong_account(
             step_id=sync_outputs.step0_id,
             task_id=sync_outputs.step0_task0_id,
         )
-        job_output_downloader.download_job_output()
+        job_output_downloader.download()
 
 
 @pytest.mark.integ
@@ -1538,7 +1538,7 @@ def test_download_outputs_no_outputs_dir(
 
     # WHEN
     try:
-        job_output_downloader.download_job_output()
+        job_output_downloader.download()
         # THEN
         # The output file should be downloaded to the current directory
         assert download_path.exists()
@@ -1593,7 +1593,7 @@ def test_download_outputs_windows_long_file_path(
 
     # WHEN
     try:
-        job_output_downloader.download_job_output()
+        job_output_downloader.download()
         # THEN
         # The output file should be downloaded to the current directory
         # Prepend \\?\ when checking the file exists, otherwise Python will not find it

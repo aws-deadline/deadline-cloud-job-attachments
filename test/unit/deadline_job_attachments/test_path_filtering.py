@@ -301,7 +301,7 @@ class TestOutputDownloaderFiltering:
     """Tests for OutputDownloader include_filters constructor param and apply_include_filters()."""
 
     def _make_downloader_with_outputs(self, root: str, paths: List[str]):
-        """Create an OutputDownloader with mocked outputs_by_root."""
+        """Create an OutputDownloader with mocked paths_by_root."""
         from unittest.mock import patch, MagicMock
 
         from deadline.job_attachments.download import OutputDownloader
@@ -327,7 +327,7 @@ class TestOutputDownloaderFiltering:
 
     def test_constructor_without_filters(self):
         dl = self._make_downloader_with_outputs("/root", ["a.exr", "b.png"])
-        assert dl.get_output_paths_by_root() == {"/root": ["a.exr", "b.png"]}
+        assert dl.get_paths_by_root() == {"/root": ["a.exr", "b.png"]}
 
     def test_constructor_with_include_filters(self):
         from unittest.mock import patch, MagicMock
@@ -352,19 +352,19 @@ class TestOutputDownloaderFiltering:
                 job_id="job-1",
                 include_filters=["*/renders/*.exr"],
             )
-        assert dl.get_output_paths_by_root() == {"/root": ["renders/a.exr", "renders/b.exr"]}
+        assert dl.get_paths_by_root() == {"/root": ["renders/a.exr", "renders/b.exr"]}
 
     def test_apply_include_filters(self):
         dl = self._make_downloader_with_outputs(
             "/root", ["renders/a.exr", "renders/b.png", "logs/c.log"]
         )
         dl.apply_include_filters(["*.exr"])
-        assert dl.get_output_paths_by_root() == {"/root": ["renders/a.exr"]}
+        assert dl.get_paths_by_root() == {"/root": ["renders/a.exr"]}
 
     def test_apply_include_filters_no_match(self):
         dl = self._make_downloader_with_outputs("/root", ["a.txt"])
         dl.apply_include_filters(["nonexistent.txt"])
-        assert dl.get_output_paths_by_root() == {}
+        assert dl.get_paths_by_root() == {}
 
     def test_apply_include_filters_chains(self):
         """Calling apply_include_filters twice narrows the result further."""
@@ -372,9 +372,9 @@ class TestOutputDownloaderFiltering:
             "/root", ["renders/a.exr", "renders/b.png", "logs/c.log"]
         )
         dl.apply_include_filters(["renders/*"])
-        assert dl.get_output_paths_by_root() == {"/root": ["renders/a.exr", "renders/b.png"]}
+        assert dl.get_paths_by_root() == {"/root": ["renders/a.exr", "renders/b.png"]}
         dl.apply_include_filters(["*.exr"])
-        assert dl.get_output_paths_by_root() == {"/root": ["renders/a.exr"]}
+        assert dl.get_paths_by_root() == {"/root": ["renders/a.exr"]}
 
     def test_set_root_path_reapplies_absolute_filters(self, tmp_path):
         """Absolute filters are reapplied against the new root after set_root_path."""
@@ -406,10 +406,10 @@ class TestOutputDownloaderFiltering:
                 include_filters=[filter_pattern],
             )
         # Filter doesn't match original root, so nothing selected yet
-        assert dl.get_output_paths_by_root() == {}
+        assert dl.get_paths_by_root() == {}
         # After remapping, the filter now matches
         dl.set_root_path(original, new)
-        assert dl.get_output_paths_by_root() == {new_normalized: ["renders/a.exr"]}
+        assert dl.get_paths_by_root() == {new_normalized: ["renders/a.exr"]}
 
     def test_set_root_path_then_filter(self, tmp_path):
         """Filters applied after set_root_path match against the new root."""
@@ -421,4 +421,138 @@ class TestOutputDownloaderFiltering:
         dl = self._make_downloader_with_outputs(original, ["renders/a.exr", "logs/b.log"])
         dl.set_root_path(original, new)
         dl.apply_include_filters([filter_pattern])
-        assert dl.get_output_paths_by_root() == {new_normalized: ["renders/a.exr"]}
+        assert dl.get_paths_by_root() == {new_normalized: ["renders/a.exr"]}
+
+
+class TestInputDownloaderFiltering:
+    """Tests for InputDownloader include_filters constructor param and apply_include_filters()."""
+
+    def _make_downloader_with_inputs(self, root: str, paths: List[str]):
+        """Create an InputDownloader with mocked paths_by_root."""
+        from unittest.mock import patch, MagicMock
+
+        from deadline.job_attachments.download import InputDownloader
+
+        with patch(
+            "deadline.job_attachments.download.get_job_input_paths_by_asset_root"
+        ) as mock_get:
+            group = ManifestPathGroup()
+            group.files_by_hash_alg[HashAlgorithm.XXH128] = [
+                ManifestPathv2023_03_03(path=p, hash="abc123", size=100, mtime=1234000000)
+                for p in paths
+            ]
+            group.total_bytes = len(paths) * 100
+            mock_get.return_value = {root: group}
+
+            downloader = InputDownloader(
+                s3_settings=MagicMock(),
+                attachments=MagicMock(),
+            )
+        return downloader
+
+    def test_constructor_without_filters(self):
+        dl = self._make_downloader_with_inputs("/root", ["a.exr", "b.png"])
+        assert dl.get_paths_by_root() == {"/root": ["a.exr", "b.png"]}
+
+    def test_constructor_with_include_filters(self):
+        from unittest.mock import patch, MagicMock
+
+        from deadline.job_attachments.download import InputDownloader
+
+        with patch(
+            "deadline.job_attachments.download.get_job_input_paths_by_asset_root"
+        ) as mock_get:
+            group = ManifestPathGroup()
+            group.files_by_hash_alg[HashAlgorithm.XXH128] = [
+                ManifestPathv2023_03_03(path=p, hash="abc123", size=100, mtime=1234000000)
+                for p in ["textures/a.png", "textures/b.exr", "scripts/c.py"]
+            ]
+            group.total_bytes = 300
+            mock_get.return_value = {"/root": group}
+
+            dl = InputDownloader(
+                s3_settings=MagicMock(),
+                attachments=MagicMock(),
+                include_filters=["*/textures/*.png"],
+            )
+        assert dl.get_paths_by_root() == {"/root": ["textures/a.png"]}
+
+    def test_apply_include_filters(self):
+        dl = self._make_downloader_with_inputs(
+            "/root", ["textures/a.png", "textures/b.exr", "scripts/c.py"]
+        )
+        dl.apply_include_filters(["*.png"])
+        assert dl.get_paths_by_root() == {"/root": ["textures/a.png"]}
+
+    def test_apply_include_filters_no_match(self):
+        dl = self._make_downloader_with_inputs("/root", ["a.txt"])
+        dl.apply_include_filters(["nonexistent.txt"])
+        assert dl.get_paths_by_root() == {}
+
+    def test_apply_include_filters_chains(self):
+        dl = self._make_downloader_with_inputs(
+            "/root", ["textures/a.png", "textures/b.exr", "scripts/c.py"]
+        )
+        dl.apply_include_filters(["textures/*"])
+        assert dl.get_paths_by_root() == {"/root": ["textures/a.png", "textures/b.exr"]}
+        dl.apply_include_filters(["*.png"])
+        assert dl.get_paths_by_root() == {"/root": ["textures/a.png"]}
+
+    def test_set_root_path_reapplies_filters(self, tmp_path):
+        original = str(tmp_path / "original")
+        new = str(tmp_path / "new_root")
+        new_normalized = str(os.path.normpath(Path(new).absolute()))
+        filter_pattern = new_normalized.replace("\\", "/") + "/textures/*"
+
+        from unittest.mock import patch, MagicMock
+
+        from deadline.job_attachments.download import InputDownloader
+
+        with patch(
+            "deadline.job_attachments.download.get_job_input_paths_by_asset_root"
+        ) as mock_get:
+            group = ManifestPathGroup()
+            group.files_by_hash_alg[HashAlgorithm.XXH128] = [
+                ManifestPathv2023_03_03(path=p, hash="abc123", size=100, mtime=1234000000)
+                for p in ["textures/a.png", "scripts/b.py"]
+            ]
+            group.total_bytes = 200
+            mock_get.return_value = {original: group}
+
+            dl = InputDownloader(
+                s3_settings=MagicMock(),
+                attachments=MagicMock(),
+                include_filters=[filter_pattern],
+            )
+        assert dl.get_paths_by_root() == {}
+        dl.set_root_path(original, new)
+        assert dl.get_paths_by_root() == {new_normalized: ["textures/a.png"]}
+
+    def test_download(self, tmp_path):
+        """Verify download() calls through to S3 download and returns stats."""
+        from unittest.mock import patch, MagicMock
+
+        from deadline.job_attachments.download import InputDownloader
+
+        root = str(tmp_path / "inputs")
+        os.makedirs(root, exist_ok=True)
+
+        with patch(
+            "deadline.job_attachments.download.get_job_input_paths_by_asset_root"
+        ) as mock_get, patch("deadline.job_attachments.download.download_files") as mock_download:
+            group = ManifestPathGroup()
+            group.files_by_hash_alg[HashAlgorithm.XXH128] = [
+                ManifestPathv2023_03_03(path="a.exr", hash="abc123", size=100, mtime=1234000000)
+            ]
+            group.total_bytes = 100
+            mock_get.return_value = {root: group}
+            mock_download.return_value = [root + "/a.exr"]
+
+            dl = InputDownloader(
+                s3_settings=MagicMock(),
+                attachments=MagicMock(),
+            )
+            summary = dl.download(on_downloading_files=MagicMock(return_value=True))
+
+            mock_download.assert_called_once()
+            assert summary.total_bytes == 100
