@@ -77,6 +77,13 @@ def get_s3_client(
             retries={"mode": S3_RETRIES_MODE},
             user_agent_extra=f"S3A/Deadline/NA/JobAttachments/{version}",
             max_pool_connections=s3_max_pool_connections,
+            # Botocore's default ("when_supported") issues a HEAD before every GET to
+            # discover the object's checksum algorithm, doubling the request count when
+            # downloading many small objects. We accept the small residual risk of
+            # undetected at-rest/in-AWS-network corruption: HTTP Content-Length and TLS
+            # already guarantee response bodies arrive complete and untampered in transit,
+            # which covers the failure modes that actually matter in practice.
+            response_checksum_validation="when_required",
         ),
     )
 
