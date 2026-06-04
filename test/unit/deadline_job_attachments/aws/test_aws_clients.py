@@ -82,6 +82,19 @@ def test_get_s3_client(boto_config):
     assert s3_client.meta.config.read_timeout == S3_READ_TIMEOUT_IN_SECS
 
 
+def test_get_s3_client_skips_response_checksum_validation(boto_config):
+    """
+    Test that the S3 client sets response_checksum_validation to "when_required".
+
+    Botocore's default of "when_supported" issues a HEAD before every GET to discover
+    the object's checksum algorithm, doubling the request count when downloading many
+    small objects. This guards against regressing back to the default.
+    """
+    s3_client = get_s3_client()
+
+    assert s3_client.meta.config.response_checksum_validation == "when_required"
+
+
 @pytest.mark.parametrize("service_name", ["s3", "deadline"])
 def test_default_regional_endpoint(boto_config, service_name):
     """
