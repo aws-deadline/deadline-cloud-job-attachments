@@ -1,3 +1,7 @@
+## 0.1.1 (2026-06-18)
+
+### Features
+* Improved S3 download and upload performance by setting `response_checksum_validation` to `when_required`, reducing unnecessary checksum validation overhead during file transfers. (#37)
 ## 0.1.0 (2026-05-01)
 
 ### BREAKING CHANGES
