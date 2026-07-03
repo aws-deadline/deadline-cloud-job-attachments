@@ -3104,3 +3104,111 @@ def test_get_new_copy_file_path_file_collisions(tmp_path: Path) -> None:
     assert test_dict[str(tmp_path / "test_original.txt")] == 1
     assert test_dict[str(tmp_path / "test_overlapping_path_but_original.txt")] == 2
     assert test_dict[str(tmp_path / "test_overlapping_path_but_original (1).txt")] == 1
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Uses POSIX absolute paths; equivalent Windows coverage is not needed for this logic.",
+)
+@pytest.mark.parametrize(
+    "malicious_path",
+    [
+        "../../../../../../../../etc/cron.d/evil",  # relative traversal escaping the root
+        "/etc/cron.d/evil",  # absolute path that discards the download dir
+        "subdir/../../../../etc/passwd",  # traversal after a valid-looking prefix
+    ],
+)
+def test_download_file_rejects_paths_outside_download_dir(tmp_path, malicious_path):
+    """
+    Regression test for the path traversal vulnerability where a manifest path that is
+    absolute or contains ".." segments could escape the download directory and cause an
+    arbitrary file write on the worker host. download_file must reject such paths with
+    PathOutsideDirectoryError before attempting any download or filesystem write.
+    """
+    file_path = ManifestPathv2023_03_03(
+        path=malicious_path,
+        hash="a" * 32,
+        size=1,
+        mtime=1234000000,
+    )
+
+    mock_s3_client = MagicMock()
+    mock_transfer_manager = MagicMock()
+    mock_lock = MagicMock()
+    mock_collision_dict = MagicMock()
+
+    download_dir = str(tmp_path / "session-dir")
+
+    with patch(
+        f"{deadline.__package__}.job_attachments.download.get_s3_client",
+        return_value=mock_s3_client,
+    ), patch(
+        f"{deadline.__package__}.job_attachments.download.get_s3_transfer_manager",
+        return_value=mock_transfer_manager,
+    ), patch("pathlib.Path.mkdir") as mock_mkdir:
+        with pytest.raises(PathOutsideDirectoryError):
+            download_file(
+                file_path,
+                HashAlgorithm.XXH128,
+                download_dir,
+                mock_lock,
+                mock_collision_dict,
+                "test-bucket",
+                "rootPrefix/Data",
+                mock_s3_client,
+            )
+
+    # No directory should have been created and no download attempted for a rejected path.
+    mock_mkdir.assert_not_called()
+    mock_transfer_manager.download.assert_not_called()
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Uses POSIX absolute paths; equivalent Windows coverage is not needed for this logic.",
+)
+def test_download_file_allows_path_within_download_dir(tmp_path):
+    """
+    A manifest path that stays within the download directory (including internal ".."
+    segments that do not escape) must be accepted and downloaded normally.
+    """
+    file_path = ManifestPathv2023_03_03(
+        path="a/b/../c/frame.txt",  # resolves to <download_dir>/a/c/frame.txt
+        hash="d" * 32,
+        size=1,
+        mtime=1234000000,
+    )
+
+    mock_s3_client = MagicMock()
+    mock_future = MagicMock()
+    mock_transfer_manager = MagicMock()
+    mock_transfer_manager.download.return_value = mock_future
+    mock_future.result.return_value = None
+    mock_lock = MagicMock()
+    mock_collision_dict: DefaultDict[str, int] = DefaultDict(int)
+
+    download_dir = str(tmp_path / "session-dir")
+
+    with patch(
+        f"{deadline.__package__}.job_attachments.download.get_s3_client",
+        return_value=mock_s3_client,
+    ), patch(
+        f"{deadline.__package__}.job_attachments.download.get_s3_transfer_manager",
+        return_value=mock_transfer_manager,
+    ), patch("pathlib.Path.mkdir"), patch("os.utime"):
+        download_file(
+            file_path,
+            HashAlgorithm.XXH128,
+            download_dir,
+            mock_lock,
+            mock_collision_dict,
+            "test-bucket",
+            "rootPrefix/Data",
+            mock_s3_client,
+        )
+
+    # The download should have been attempted, and the target must stay within the download dir.
+    mock_transfer_manager.download.assert_called_once()
+    fileobj_path = mock_transfer_manager.download.call_args.kwargs["fileobj"]
+    resolved_root = str(Path(download_dir).resolve())
+    assert os.path.commonpath([resolved_root, os.path.normpath(fileobj_path)]) == resolved_root

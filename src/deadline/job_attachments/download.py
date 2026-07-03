@@ -511,6 +511,7 @@ def download_file(
     modified_time_override = file.mtime / 1000000  # type: ignore[attr-defined]
 
     file_bytes = file.size
+    _ensure_paths_within_directory(str(Path(local_download_dir).resolve()), [file.path])
 
     # Python will handle the path separator '/' correctly on every platform.
     local_file_path: Path = _get_long_path_compatible_path(

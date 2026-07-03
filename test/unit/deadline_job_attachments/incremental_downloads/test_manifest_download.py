@@ -275,3 +275,145 @@ def test_manifest_and_output_downloads(tmp_path):
         assert os.path.isfile(file)
         with open(file, "rb") as fh:
             assert fh.read() == contents
+
+
+def _put_manifest_in_s3(queue: dict, paths: list[BaseManifestPath]) -> str:
+    """
+    Helper that builds an AssetManifest from the given paths, stores it in the moto S3 bucket,
+    and returns the S3 key under the queue's Manifests prefix.
+    """
+    s3 = boto3.resource("s3")
+    bucket = s3.Bucket(queue["jobAttachmentSettings"]["s3BucketName"])
+    total_size = sum(p.size for p in paths)
+    manifest = AssetManifest(hash_alg=HashAlgorithm.XXH128, paths=paths, total_size=total_size)
+    manifest_bytes = manifest.encode().encode("utf-8")
+    manifest_hash = hash_data(manifest_bytes, HashAlgorithm.XXH128)
+    key = f"{queue['jobAttachmentSettings']['rootPrefix']}/Manifests/{manifest_hash}.xxh128"
+    bucket.put_object(Key=key, Body=manifest_bytes)
+    return key
+
+
+@mock_aws
+def test_traversal_paths_are_dropped_without_path_mapping(tmp_path):
+    """
+    Regression test for the path traversal vulnerability where a malicious manifest with
+    absolute paths or ".." segments could write files outside of the root path during an
+    incremental download. With no path mapping applier (same storage profile or
+    --ignore-storage-profiles), traversal paths must be dropped into unmapped_paths rather
+    than written to the local workstation.
+    """
+    from deadline.job_attachments._incremental_downloads._manifest_s3_downloads import (
+        _download_manifest_and_make_paths_absolute,
+    )
+
+    bucket_name = "test-bucket"
+    root_prefix = "test-prefix"
+    boto3_session = boto3.Session(region_name="us-west-2")
+    s3_client = boto3_session.client("s3", region_name="us-west-2")
+    s3_client.create_bucket(
+        Bucket=bucket_name, CreateBucketConfiguration={"LocationConstraint": "us-west-2"}
+    )
+
+    queue = {
+        "queueId": "queue-01234567890123456789012345678901",
+        "jobAttachmentSettings": {"s3BucketName": bucket_name, "rootPrefix": root_prefix},
+    }
+
+    root_path = str(tmp_path / "download-root")
+
+    # A safe file plus malicious paths: a relative traversal and an absolute path.
+    safe_path = ManifestPath(path="subdir/safe.txt", hash="a" * 32, size=1, mtime=1)
+    traversal_path = ManifestPath(
+        path="../../../../../../../../tmp/evil.txt", hash="b" * 32, size=1, mtime=1
+    )
+    absolute_path = ManifestPath(path="/etc/cron.d/evil", hash="c" * 32, size=1, mtime=1)
+
+    manifest_key = _put_manifest_in_s3(queue, [safe_path, traversal_path, absolute_path])
+
+    output_manifests: list = [None]
+    output_unmapped_paths: list = []
+
+    _download_manifest_and_make_paths_absolute(
+        index=0,
+        queue=queue,
+        job_id="job-1",
+        root_path=root_path,
+        manifest_s3_key=manifest_key,
+        path_mapping_rule_applier=None,
+        boto3_session_for_s3=boto3_session,
+        output_manifests=output_manifests,
+        output_unmapped_paths=output_unmapped_paths,
+    )
+
+    _, manifest = output_manifests[0]
+
+    # The safe path should survive and be made absolute under the root path.
+    surviving_paths = {mp.path for mp in manifest.paths}
+    expected_safe = os.path.normpath(os.path.join(root_path, "subdir/safe.txt"))
+    assert surviving_paths == {expected_safe}
+
+    # Every surviving path must be contained within the root path.
+    for mp in manifest.paths:
+        assert os.path.commonpath([os.path.normpath(root_path), mp.path]) == os.path.normpath(
+            root_path
+        )
+
+    # Both the traversal and the absolute path must be dropped (reported as unmapped),
+    # not written. The recorded path is the normalized join result, so assert on count
+    # and that none of the dropped paths remain within the root.
+    assert len(output_unmapped_paths) == 2
+    for dropped_job_id, dropped_path in output_unmapped_paths:
+        assert dropped_job_id == "job-1"
+        assert os.path.commonpath(
+            [os.path.normpath(root_path), os.path.normpath(dropped_path)]
+        ) != os.path.normpath(root_path)
+
+
+@mock_aws
+def test_absolute_path_within_root_is_allowed(tmp_path):
+    """
+    A manifest path that, after joining/normalizing, still resolves within the root path
+    must be preserved.
+    """
+    from deadline.job_attachments._incremental_downloads._manifest_s3_downloads import (
+        _download_manifest_and_make_paths_absolute,
+    )
+
+    bucket_name = "test-bucket"
+    root_prefix = "test-prefix"
+    boto3_session = boto3.Session(region_name="us-west-2")
+    s3_client = boto3_session.client("s3", region_name="us-west-2")
+    s3_client.create_bucket(
+        Bucket=bucket_name, CreateBucketConfiguration={"LocationConstraint": "us-west-2"}
+    )
+
+    queue = {
+        "queueId": "queue-01234567890123456789012345678901",
+        "jobAttachmentSettings": {"s3BucketName": bucket_name, "rootPrefix": root_prefix},
+    }
+
+    root_path = str(tmp_path / "download-root")
+
+    # A path with internal ".." segments that still stays under the root.
+    nested_path = ManifestPath(path="a/b/../c/file.txt", hash="d" * 32, size=1, mtime=1)
+    manifest_key = _put_manifest_in_s3(queue, [nested_path])
+
+    output_manifests: list = [None]
+    output_unmapped_paths: list = []
+
+    _download_manifest_and_make_paths_absolute(
+        index=0,
+        queue=queue,
+        job_id="job-1",
+        root_path=root_path,
+        manifest_s3_key=manifest_key,
+        path_mapping_rule_applier=None,
+        boto3_session_for_s3=boto3_session,
+        output_manifests=output_manifests,
+        output_unmapped_paths=output_unmapped_paths,
+    )
+
+    _, manifest = output_manifests[0]
+    expected = os.path.normpath(os.path.join(root_path, "a/b/../c/file.txt"))
+    assert {mp.path for mp in manifest.paths} == {expected}
+    assert output_unmapped_paths == []

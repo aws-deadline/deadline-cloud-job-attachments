@@ -29,6 +29,7 @@ from ..download import (
     _get_asset_root_and_manifest_from_s3_with_last_modified,
     _get_num_download_workers,
     _get_new_copy_file_path,
+    _ensure_paths_within_directory,
     S3_DOWNLOAD_MAX_CONCURRENCY,
 )
 from ..asset_manifests import (
@@ -51,6 +52,7 @@ from ..exceptions import (
     JobAttachmentS3BotoCoreError,
     JobAttachmentsS3ClientError,
     JobAttachmentsError,
+    PathOutsideDirectoryError,
 )
 from .._aws.aws_clients import (
     get_s3_client,
@@ -218,13 +220,14 @@ def _download_manifest_and_make_paths_absolute(
         manifest_s3_key, queue["jobAttachmentSettings"]["s3BucketName"], boto3_session_for_s3
     )
     if path_mapping_rule_applier:
-        new_manifest_paths = []
         if path_mapping_rule_applier.source_path_format == PathFormat.WINDOWS.value:
             source_os_path: Any = ntpath
         else:
             source_os_path = posixpath
     else:
         source_os_path = os.path
+
+    new_manifest_paths = []
 
     # Convert all the manifest paths to have absolute normalized local paths
     for manifest_path in manifest.paths:
@@ -239,10 +242,15 @@ def _download_manifest_and_make_paths_absolute(
                 new_manifest_paths.append(manifest_path)
             except ValueError:
                 output_unmapped_paths.append((job_id, manifest_path.path))
+        else:
+            try:
+                _ensure_paths_within_directory(root_path, [manifest_path.path])
+                new_manifest_paths.append(manifest_path)
+            except (PathOutsideDirectoryError, ValueError):
+                output_unmapped_paths.append((job_id, manifest_path.path))
 
-    if path_mapping_rule_applier:
-        # Update the manifest to only include the mapped paths
-        manifest.paths = new_manifest_paths
+    # Update the manifest to only include the validated (and, where applicable, mapped) paths
+    manifest.paths = new_manifest_paths
 
     output_manifests[index] = (last_modified, manifest)
 
