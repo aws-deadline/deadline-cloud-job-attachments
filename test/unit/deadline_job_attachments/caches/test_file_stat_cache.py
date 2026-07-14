@@ -109,3 +109,77 @@ class TestFileStatCache:
 
             # Should only call stat once
             assert mock_stat.call_count == 1
+
+
+class TestFileStatCacheLongPath:
+    """Tests for Windows long-path (MAX_PATH >= 260) handling in _FileStatCache.
+    Verifies fix for GitHub issue #51: long-path files silently excluded from upload.
+    """
+
+    LONG_PATH = "C:\\" + "a" * 250 + "\\file.txt"  # >= 260 chars total
+
+    def test_get_stat_applies_long_path_prefix(self, tmp_path):
+        """Test that _get_stat wraps the path with _get_long_path_compatible_path (issue #51)"""
+        cache = _FileStatCache()
+        mock_stat_result = MagicMock()
+
+        with patch(
+            "deadline.job_attachments.upload._get_long_path_compatible_path"
+        ) as mock_compat, patch.object(Path, "stat", return_value=mock_stat_result):
+            mock_compat.return_value = Path(self.LONG_PATH)
+
+            result = cache._get_stat(self.LONG_PATH)
+
+            # Verify the helper was called with the original path string
+            mock_compat.assert_called_once_with(self.LONG_PATH)
+            assert result == mock_stat_result
+
+    def test_get_stat_cache_key_is_original_path(self, tmp_path):
+        """Test that lru_cache key remains the original path_str, not the prefixed one"""
+        cache = _FileStatCache()
+        mock_stat_result = MagicMock()
+
+        with patch(
+            "deadline.job_attachments.upload._get_long_path_compatible_path"
+        ) as mock_compat, patch.object(Path, "stat", return_value=mock_stat_result):
+            mock_compat.return_value = Path("\\\\?\\" + self.LONG_PATH)
+
+            # Call twice - second call should use cache
+            cache._get_stat(self.LONG_PATH)
+            cache._get_stat(self.LONG_PATH)
+
+            # The helper should only be called once (cached on second call)
+            assert mock_compat.call_count == 1
+
+    def test_exists_fallback_applies_long_path_prefix(self, tmp_path):
+        """Test that exists() fallback wraps path with _get_long_path_compatible_path"""
+        cache = _FileStatCache()
+
+        with patch(
+            "deadline.job_attachments.upload._get_long_path_compatible_path"
+        ) as mock_compat, patch.object(Path, "stat", side_effect=FileNotFoundError), patch.object(
+            Path, "exists", return_value=True
+        ):
+            mock_compat.return_value = Path("\\\\?\\" + self.LONG_PATH)
+
+            result = cache.exists(Path(self.LONG_PATH))
+
+            # The fallback path.exists() should be called on the wrapped path
+            assert result is True
+            mock_compat.assert_called()
+
+    def test_is_dir_fallback_applies_long_path_prefix(self, tmp_path):
+        """Test that is_dir() fallback wraps path with _get_long_path_compatible_path"""
+        cache = _FileStatCache()
+
+        with patch(
+            "deadline.job_attachments.upload._get_long_path_compatible_path"
+        ) as mock_compat, patch.object(Path, "stat", side_effect=FileNotFoundError), patch.object(
+            Path, "is_dir", return_value=False
+        ):
+            mock_compat.return_value = Path("\\\\?\\" + self.LONG_PATH)
+
+            result = cache.is_dir(Path(self.LONG_PATH))
+
+            assert result is False
+            mock_compat.assert_called()
