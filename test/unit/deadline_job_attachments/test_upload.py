@@ -3135,3 +3135,127 @@ def assert_progress_report_summary_statistics(
         transfer_rate=processed_bytes / actual_summary_statistics.total_time,
     )
     assert actual_summary_statistics == expected_summary_statistics
+
+
+class TestUploadLongPath:
+    """Tests for Windows long-path handling in the upload flow.
+    Verifies fix for GitHub issue #51: files with paths >= 260 chars are NOT
+    silently demoted to referenced_paths during upload.
+    """
+
+    LONG_FILENAME = "a" * 250 + ".txt"
+    # Construct a Windows-style path that exceeds MAX_PATH (260)
+    LONG_WIN_PATH = "C:\\Users\\test\\" + LONG_FILENAME
+    # POSIX long path for cross-platform test (absolute, >= 260 chars)
+    LONG_POSIX_PATH = "/home/user/" + "subdir/" * 40 + "file.txt"
+
+    @pytest.fixture
+    def asset_manager(self):
+        return S3AssetManager(
+            farm_id="farm-0123456789abcdef0123456789abcdef",
+            queue_id="queue-0123456789abcdef0123456789abcdef",
+            job_attachment_settings=JobAttachmentS3Settings(
+                s3BucketName="test-bucket",
+                rootPrefix="test-root",
+            ),
+        )
+
+    def test_long_path_file_not_demoted_to_referenced_paths(self, asset_manager):
+        """A file with path >= 260 chars should proceed to upload, not be demoted
+        to referenced_paths. This is the core regression test for issue #51.
+        """
+        long_path = self.LONG_POSIX_PATH
+        assert len(long_path) >= 260, f"Test path must be >= 260 chars, got {len(long_path)}"
+        abs_path = Path(os.path.normpath(Path(long_path).absolute()))
+
+        # Patch the stat cache to report the file exists and is not a directory
+        with patch.object(asset_manager._stat_cache, "exists", return_value=True), patch.object(
+            asset_manager._stat_cache, "is_dir", return_value=False
+        ):
+            referenced_paths: Set[str] = set()
+            result = asset_manager._get_asset_groups(
+                input_paths={long_path},
+                output_paths=set(),
+                referenced_paths=referenced_paths,
+                local_type_locations={},
+                shared_type_locations={},
+            )
+
+            # The file must NOT have been demoted to referenced_paths
+            assert long_path not in referenced_paths, (
+                f"Long path was demoted to referenced_paths (issue #51 regression): {long_path}"
+            )
+            # The file should be present in one of the asset groups
+            all_inputs = set()
+            for group in result:
+                all_inputs.update(group.inputs)
+            assert abs_path in all_inputs
+
+    def test_process_input_path_stat_uses_long_path_helper(self, asset_manager):
+        """Verify _process_input_path calls stat through the long-path helper for paths >= 260 chars."""
+        long_path = Path(self.LONG_WIN_PATH)
+
+        with patch("deadline.job_attachments.upload._get_long_path_compatible_path") as mock_compat:
+            # Return the original path (non-Windows behavior: helper is passthrough)
+            mock_compat.return_value = long_path
+
+            mock_stat = MagicMock()
+            mock_stat.st_mtime = 1234567890.0
+            mock_stat.st_mtime_ns = 1234567890000000000
+            mock_stat.st_size = 1024
+
+            with patch.object(Path, "stat", return_value=mock_stat), patch.object(
+                Path, "resolve", return_value=long_path
+            ), patch("deadline.job_attachments.upload.hash_file", return_value="abc123"), patch(
+                "deadline.job_attachments.upload.HashCache"
+            ) as MockHashCache:
+                mock_hash_cache = MockHashCache.return_value
+                mock_hash_cache.get_connection_entry.return_value = None
+                mock_hash_cache.get_local_connection.return_value = MagicMock()
+
+                asset_manager._process_input_path(
+                    path=long_path,
+                    root_path=str(long_path.parent),
+                    hash_cache=mock_hash_cache,
+                )
+
+                # Verify _get_long_path_compatible_path was called (at least for stat)
+                assert mock_compat.called, (
+                    "_get_long_path_compatible_path must be called for long paths in _process_input_path"
+                )
+
+    def test_process_input_path_hash_file_uses_long_path_helper(self, asset_manager):
+        """Verify _process_input_path passes long-path-compatible path to hash_file (issue #51)."""
+        long_path = Path(self.LONG_WIN_PATH)
+
+        with patch("deadline.job_attachments.upload._get_long_path_compatible_path") as mock_compat:
+            mock_compat.return_value = long_path
+
+            mock_stat = MagicMock()
+            mock_stat.st_mtime = 1234567890.0
+            mock_stat.st_mtime_ns = 1234567890000000000
+            mock_stat.st_size = 1024
+
+            with patch.object(Path, "stat", return_value=mock_stat), patch.object(
+                Path, "resolve", return_value=long_path
+            ), patch(
+                "deadline.job_attachments.upload.hash_file", return_value="abc123"
+            ) as mock_hash_file, patch(
+                "deadline.job_attachments.upload.HashCache"
+            ) as MockHashCache:
+                mock_hash_cache = MockHashCache.return_value
+                mock_hash_cache.get_connection_entry.return_value = None
+                mock_hash_cache.get_local_connection.return_value = MagicMock()
+
+                asset_manager._process_input_path(
+                    path=long_path,
+                    root_path=str(long_path.parent),
+                    hash_cache=mock_hash_cache,
+                )
+
+                # hash_file must receive the helper-wrapped path, not raw full_path
+                mock_hash_file.assert_called_once()
+                actual_path_arg = mock_hash_file.call_args[0][0]
+                assert actual_path_arg == str(long_path), (
+                    f"hash_file should receive long-path-compatible path, got: {actual_path_arg}"
+                )

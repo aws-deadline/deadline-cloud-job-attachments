@@ -90,7 +90,10 @@ class _FileStatCache:
     def _get_stat(self, path_str: str) -> Optional[os.stat_result]:
         """Get cached stat result for a path string"""
         try:
-            return Path(path_str).stat()
+            # Apply Windows long-path prefix (\\?\) for paths >= MAX_PATH.
+            # Cache key remains the original path_str via lru_cache.
+            compatible_path = _get_long_path_compatible_path(path_str)
+            return compatible_path.stat()
         except (FileNotFoundError, PermissionError, OSError):
             return None
 
@@ -99,16 +102,18 @@ class _FileStatCache:
         stat_result = self._get_stat(str(path))
         if stat_result is not None:
             return True
-        # Fall back to direct exists() call if stat failed
-        return path.exists()
+        # Fall back to direct exists() call with long-path support if stat failed
+        compatible_path = _get_long_path_compatible_path(path)
+        return compatible_path.exists()
 
     def is_dir(self, path: Path) -> bool:
         """Check if path is directory, using cache when possible"""
         stat_result = self._get_stat(str(path))
         if stat_result is not None:
             return stat.S_ISDIR(stat_result.st_mode)
-        # Fall back to direct is_dir() call if stat failed
-        return path.is_dir()
+        # Fall back to direct is_dir() call with long-path support if stat failed
+        compatible_path = _get_long_path_compatible_path(path)
+        return compatible_path.is_dir()
 
     def get_size(self, path: Path) -> int:
         """Get file size using cached stat"""
@@ -702,9 +707,12 @@ class S3AssetUploader:
         """
         local_path = source_root.joinpath(file.path)
         s3_upload_key = self._generate_s3_upload_key(file, hash_algorithm, S3_DATA_FOLDER_NAME)
-        file_size = local_path.resolve().stat().st_size
+        file_size = _get_long_path_compatible_path(local_path.resolve()).stat().st_size
 
-        shutil.copy2(local_path, snapshot_dir / s3_upload_key)
+        shutil.copy2(
+            _get_long_path_compatible_path(local_path.resolve()),
+            _get_long_path_compatible_path(snapshot_dir / s3_upload_key),
+        )
         if progress_tracker is not None:
             progress_tracker.track_progress_callback(file_size)
 
@@ -746,7 +754,13 @@ class S3AssetUploader:
             is_file_within_base_dir = True
 
         # Skip the file if it's (1) a directory, 2. not existing, or 3. not within the base directory.
-        if real_path.is_dir() or not real_path.exists() or not is_file_within_base_dir:
+        # Apply long-path prefix for Windows paths >= MAX_PATH
+        compatible_real_path = _get_long_path_compatible_path(real_path)
+        if (
+            compatible_real_path.is_dir()
+            or not compatible_real_path.exists()
+            or not is_file_within_base_dir
+        ):
             return
 
         with self._open_non_symlink_file_binary(str(real_path)) as file_obj:
@@ -832,7 +846,7 @@ class S3AssetUploader:
                 )
                 yield None
 
-            fd = os.open(path, open_flags)
+            fd = os.open(str(_get_long_path_compatible_path(path)), open_flags)
             if sys.platform == "win32":
                 # Windows does not support O_NOFOLLOW. So, check the file handle with GetFinalPathNameByHandle
                 # to verify it is actually pointing to the path that we verified to be safe to open.
@@ -1085,7 +1099,10 @@ class S3AssetManager:
 
         full_path = str(path.resolve())
         file_status: FileStatus = FileStatus.UNCHANGED
-        actual_modified_time = str(datetime.fromtimestamp(path.stat().st_mtime))
+        # Use long-path compatible path for stat and hash_file calls (Windows MAX_PATH)
+        compatible_path = _get_long_path_compatible_path(path)
+        compatible_full_path = str(_get_long_path_compatible_path(path.resolve()))
+        actual_modified_time = str(datetime.fromtimestamp(compatible_path.stat().st_mtime))
 
         entry: Optional[HashCacheEntry] = hash_cache.get_connection_entry(
             full_path, hash_alg, connection=hash_cache.get_local_connection()
@@ -1094,14 +1111,14 @@ class S3AssetManager:
             # If the file was modified, we need to rehash it
             if actual_modified_time != entry.last_modified_time:
                 entry.last_modified_time = actual_modified_time
-                entry.file_hash = hash_file(full_path, hash_alg)
+                entry.file_hash = hash_file(compatible_full_path, hash_alg)
                 entry.hash_algorithm = hash_alg
                 file_status = FileStatus.MODIFIED
         else:
             entry = HashCacheEntry(
                 file_path=full_path,
                 hash_algorithm=hash_alg,
-                file_hash=hash_file(full_path, hash_alg),
+                file_hash=hash_file(compatible_full_path, hash_alg),
                 last_modified_time=actual_modified_time,
             )
             file_status = FileStatus.NEW
@@ -1109,7 +1126,7 @@ class S3AssetManager:
         if file_status != FileStatus.UNCHANGED and update:
             hash_cache.put_entry(entry)
 
-        file_size = path.resolve().stat().st_size
+        file_size = _get_long_path_compatible_path(path.resolve()).stat().st_size
         path_args: dict[str, Any] = {
             "path": path.relative_to(root_path).as_posix(),
             "hash": entry.file_hash,
@@ -1117,7 +1134,7 @@ class S3AssetManager:
 
         # stat().st_mtime_ns returns an int that represents the time in nanoseconds since the epoch.
         # The asset manifest spec requires the mtime to be represented as an integer in microseconds.
-        path_args["mtime"] = trunc(path.stat().st_mtime_ns // 1000)
+        path_args["mtime"] = trunc(compatible_path.stat().st_mtime_ns // 1000)
         path_args["size"] = file_size
 
         return (file_status, file_size, manifest_model.Path(**path_args))
