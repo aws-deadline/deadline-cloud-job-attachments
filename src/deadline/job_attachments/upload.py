@@ -707,10 +707,11 @@ class S3AssetUploader:
         """
         local_path = source_root.joinpath(file.path)
         s3_upload_key = self._generate_s3_upload_key(file, hash_algorithm, S3_DATA_FOLDER_NAME)
-        file_size = _get_long_path_compatible_path(local_path.resolve()).stat().st_size
+        compatible_local = _get_long_path_compatible_path(local_path.resolve())
+        file_size = compatible_local.stat().st_size
 
         shutil.copy2(
-            _get_long_path_compatible_path(local_path.resolve()),
+            compatible_local,
             _get_long_path_compatible_path(snapshot_dir / s3_upload_key),
         )
         if progress_tracker is not None:
@@ -1097,12 +1098,13 @@ class S3AssetManager:
         )
         hash_alg: HashAlgorithm = manifest_model.AssetManifest.get_default_hash_alg()
 
-        full_path = str(path.resolve())
         file_status: FileStatus = FileStatus.UNCHANGED
-        # Use long-path compatible path for stat and hash_file calls (Windows MAX_PATH)
-        compatible_path = _get_long_path_compatible_path(path)
-        compatible_full_path = str(_get_long_path_compatible_path(path.resolve()))
-        actual_modified_time = str(datetime.fromtimestamp(compatible_path.stat().st_mtime))
+        # Resolve once; wrap once; stat once — consistent snapshot of mtime/size.
+        resolved = path.resolve()
+        full_path = str(resolved)
+        compatible_path = _get_long_path_compatible_path(resolved)
+        stat_result = compatible_path.stat()
+        actual_modified_time = str(datetime.fromtimestamp(stat_result.st_mtime))
 
         entry: Optional[HashCacheEntry] = hash_cache.get_connection_entry(
             full_path, hash_alg, connection=hash_cache.get_local_connection()
@@ -1111,14 +1113,14 @@ class S3AssetManager:
             # If the file was modified, we need to rehash it
             if actual_modified_time != entry.last_modified_time:
                 entry.last_modified_time = actual_modified_time
-                entry.file_hash = hash_file(compatible_full_path, hash_alg)
+                entry.file_hash = hash_file(str(compatible_path), hash_alg)
                 entry.hash_algorithm = hash_alg
                 file_status = FileStatus.MODIFIED
         else:
             entry = HashCacheEntry(
                 file_path=full_path,
                 hash_algorithm=hash_alg,
-                file_hash=hash_file(compatible_full_path, hash_alg),
+                file_hash=hash_file(str(compatible_path), hash_alg),
                 last_modified_time=actual_modified_time,
             )
             file_status = FileStatus.NEW
@@ -1126,7 +1128,7 @@ class S3AssetManager:
         if file_status != FileStatus.UNCHANGED and update:
             hash_cache.put_entry(entry)
 
-        file_size = _get_long_path_compatible_path(path.resolve()).stat().st_size
+        file_size = stat_result.st_size
         path_args: dict[str, Any] = {
             "path": path.relative_to(root_path).as_posix(),
             "hash": entry.file_hash,
@@ -1134,7 +1136,7 @@ class S3AssetManager:
 
         # stat().st_mtime_ns returns an int that represents the time in nanoseconds since the epoch.
         # The asset manifest spec requires the mtime to be represented as an integer in microseconds.
-        path_args["mtime"] = trunc(compatible_path.stat().st_mtime_ns // 1000)
+        path_args["mtime"] = trunc(stat_result.st_mtime_ns // 1000)
         path_args["size"] = file_size
 
         return (file_status, file_size, manifest_model.Path(**path_args))

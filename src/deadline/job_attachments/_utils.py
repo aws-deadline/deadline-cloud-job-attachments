@@ -1,7 +1,7 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 
 import datetime
-from functools import wraps
+from functools import lru_cache, wraps
 from hashlib import shake_256
 from pathlib import Path
 import random
@@ -95,7 +95,10 @@ def _is_relative_to(path1: Union[Path, str], path2: Union[Path, str]) -> bool:
         return False
 
 
+@lru_cache(maxsize=1)
 def _is_windows_long_path_registry_enabled() -> bool:
+    # Cached: the RtlAreLongPathsEnabled value is latched per-process and the
+    # uncached path constructs a fresh ctypes.WinDLL on every call.
     if sys.platform != "win32":
         return True
 
