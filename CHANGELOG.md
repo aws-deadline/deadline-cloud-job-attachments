@@ -1,3 +1,10 @@
+## 0.1.3 (2026-07-15)
+
+### Features
+* Improved upload performance on Windows by caching the long-path registry check (avoiding repeated ctypes allocations) and deduplicating stat calls per file, ensuring consistent metadata between the hash cache and manifest. (`c9868d6`)
+
+### Bug Fixes
+* Fixed support for Windows long paths (>= MAX_PATH / 260 characters) in the upload flow. Files with long paths are now correctly resolved and uploaded. (`e75531b`)
 ## 0.1.2 (2026-07-03)
 ## 0.1.1 (2026-06-18)
 
