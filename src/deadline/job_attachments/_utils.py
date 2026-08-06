@@ -117,9 +117,13 @@ def _get_long_path_compatible_path(original_path: Union[str, Path]) -> Path:
     make it long path compatible if needed on Windows and return the Path object
     https://learn.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation
 
+    The prefix is applied whenever the path is long, without consulting the
+    machine-wide LongPathsEnabled registry setting. That setting only takes effect
+    for processes whose application manifest declares longPathAware, and this code
+    also runs inside DCC-hosted interpreters whose host executables do not declare
+    it. The prefix is a no-op for a process that is already long path aware.
+
     :param original_path: Original unmodified path/string representing an absolute path.
-    show
-    :param show_long_path_warning: Whether to show a warning to the user that the resulting path is in a long path.
     :return: A Path object representing the long path compatible path.
     """
 
@@ -130,7 +134,6 @@ def _get_long_path_compatible_path(original_path: Union[str, Path]) -> Path:
     if (
         len(original_path_string) + TEMP_DOWNLOAD_ADDED_CHARS_LENGTH >= WINDOWS_MAX_PATH_LENGTH
         and not original_path_string.startswith(WINDOWS_UNC_PATH_STRING_PREFIX)
-        and not _is_windows_long_path_registry_enabled()
     ):
         # Prepend \\?\ to the file name to treat it as an UNC path
         return Path(WINDOWS_UNC_PATH_STRING_PREFIX + original_path_string)

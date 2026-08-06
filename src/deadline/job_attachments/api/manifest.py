@@ -224,13 +224,13 @@ def _write_manifest(
     manifest_name = manifest_name[1:] if manifest_name[0] == "_" else manifest_name
     manifest_name = f"{manifest_name}-{root_hash}-{timestamp}.manifest"
 
-    local_manifest_path = str(
-        _get_long_path_compatible_path(
-            os.path.join(destination, manifest_name),
-        )
-    )
-    os.makedirs(os.path.dirname(local_manifest_path), exist_ok=True)
-    with open(local_manifest_path, "w") as file:
+    local_manifest_path = os.path.join(destination, manifest_name)
+
+    # The \\?\ prefix is only for our own file operations. Callers surface this path to
+    # users and to other tools, many of which cannot parse the prefixed form.
+    write_path = str(_get_long_path_compatible_path(local_manifest_path))
+    os.makedirs(os.path.dirname(write_path), exist_ok=True)
+    with open(write_path, "w") as file:
         file.write(manifest.encode())
 
     return local_manifest_path

@@ -7,7 +7,11 @@ import tempfile
 from typing import List, Optional, Set
 from deadline.job_attachments.api.manifest import _manifest_snapshot
 from deadline.job_attachments.models import ManifestSnapshot
-from deadline.job_attachments._utils import _retry
+from deadline.job_attachments._utils import (
+    WINDOWS_UNC_PATH_STRING_PREFIX,
+    _get_long_path_compatible_path,
+    _retry,
+)
 import pytest
 
 
@@ -22,6 +26,27 @@ class TestSnapshotAPI:
         with open(manifest_path, "r") as manifest_file:
             manifest_payload = json.load(manifest_file)
             return {item["path"] for item in manifest_payload["paths"]}
+
+    def test_snapshot_returns_path_without_unc_prefix(self, temp_dir):
+        """
+        The returned manifest path is surfaced to users and other tools, many of which
+        cannot parse the \\\\?\\ form, so it must never carry the prefix.
+        """
+        # Given a folder with a file in it
+        root_dir = os.path.join(temp_dir, "root")
+        os.makedirs(root_dir)
+        Path(os.path.join(root_dir, "file.txt")).touch()
+
+        # When
+        manifest: Optional[ManifestSnapshot] = _manifest_snapshot(
+            root=root_dir, destination=temp_dir, name="test"
+        )
+
+        # Then
+        assert manifest is not None
+        assert not manifest.manifest.startswith(WINDOWS_UNC_PATH_STRING_PREFIX)
+        # The file was still written, so the prefix was applied where it mattered.
+        assert os.path.isfile(_get_long_path_compatible_path(manifest.manifest))
 
     def test_snapshot_empty_folder(self, temp_dir):
         """

@@ -2,10 +2,16 @@
 
 from pathlib import Path
 import sys
+from unittest.mock import patch
 
 import pytest
 
+import deadline
 from deadline.job_attachments._utils import (
+    TEMP_DOWNLOAD_ADDED_CHARS_LENGTH,
+    WINDOWS_MAX_PATH_LENGTH,
+    WINDOWS_UNC_PATH_STRING_PREFIX,
+    _get_long_path_compatible_path,
     _normalize_windows_path,
     _is_relative_to,
     _retry,
@@ -119,3 +125,76 @@ class TestUtils:
 
         # Then
         assert call_count == 2
+
+
+class TestGetLongPathCompatiblePath:
+    r"""
+    Tests for _get_long_path_compatible_path.
+
+    The `\\?\` prefix is what lets a file operation exceed MAX_PATH. Whether it is
+    needed depends on the *calling process* declaring longPathAware in its
+    application manifest, which is independent of the machine-wide
+    LongPathsEnabled registry setting. Deadline code runs inside DCC-hosted
+    interpreters whose host executables do not declare the flag, so the prefix is
+    required even when the registry setting is on.
+    """
+
+    _REGISTRY_CHECK = (
+        f"{deadline.__package__}.job_attachments._utils._is_windows_long_path_registry_enabled"
+    )
+
+    def _long_path(self) -> str:
+        """A Windows path long enough to require the prefix, accounting for temp-download suffix."""
+        needed = WINDOWS_MAX_PATH_LENGTH - TEMP_DOWNLOAD_ADDED_CHARS_LENGTH
+        path = "C:\\" + "a" * needed
+        assert len(path) + TEMP_DOWNLOAD_ADDED_CHARS_LENGTH >= WINDOWS_MAX_PATH_LENGTH
+        return path
+
+    @pytest.mark.parametrize("registry_enabled", [True, False])
+    def test_long_path_always_gets_unc_prefix_on_windows(self, registry_enabled):
+        """A long path gets the prefix regardless of the registry setting."""
+        long_path = self._long_path()
+
+        with patch.object(sys, "platform", "win32"), patch(
+            self._REGISTRY_CHECK, return_value=registry_enabled
+        ):
+            result = _get_long_path_compatible_path(long_path)
+
+        assert str(result).startswith(WINDOWS_UNC_PATH_STRING_PREFIX), (
+            "Long paths must get the \\\\?\\ prefix even when the LongPathsEnabled registry "
+            "setting is on, because the prefix is what allows a non-longPathAware host process "
+            "(e.g. a DCC executable) to exceed MAX_PATH."
+        )
+        assert str(result) == WINDOWS_UNC_PATH_STRING_PREFIX + long_path
+
+    @pytest.mark.parametrize("registry_enabled", [True, False])
+    def test_is_idempotent(self, registry_enabled):
+        """An already-prefixed path is not prefixed twice."""
+        already_prefixed = WINDOWS_UNC_PATH_STRING_PREFIX + self._long_path()
+
+        with patch.object(sys, "platform", "win32"), patch(
+            self._REGISTRY_CHECK, return_value=registry_enabled
+        ):
+            result = _get_long_path_compatible_path(already_prefixed)
+
+        assert str(result) == already_prefixed
+
+    def test_short_path_is_unchanged_on_windows(self):
+        """Paths under the limit are left alone."""
+        short_path = r"C:\short\path.txt"
+
+        with patch.object(sys, "platform", "win32"), patch(
+            self._REGISTRY_CHECK, return_value=False
+        ):
+            result = _get_long_path_compatible_path(short_path)
+
+        assert str(result) == short_path
+
+    def test_non_windows_is_unchanged(self):
+        """The prefix is Windows-only and must never be applied elsewhere."""
+        long_posix_path = "/" + "a" * WINDOWS_MAX_PATH_LENGTH
+
+        with patch.object(sys, "platform", "linux"):
+            result = _get_long_path_compatible_path(long_posix_path)
+
+        assert str(result) == long_posix_path
