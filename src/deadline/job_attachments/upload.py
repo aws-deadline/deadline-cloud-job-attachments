@@ -75,6 +75,9 @@ from .progress_tracker import (
     SummaryStatistics,
 )
 from ._utils import (
+    WINDOWS_PATH_SEPARATOR,
+    WINDOWS_UNC_DEVICE_PATH_STRING_PREFIX,
+    WINDOWS_UNC_PATH_STRING_PREFIX,
     _get_long_path_compatible_path,
     _is_relative_to,
     _join_s3_paths,
@@ -928,12 +931,12 @@ class S3AssetUploader:
         # GetFinalPathNameByHandleW() returns a path that starts with the \\?\
         # prefix, which pathlib.Path.resolve() removes.  The following is intended
         # to match the behavior of resolve().
-        prefix = r"\\?" "\\"
-        unc_prefix = r"\\?\UNC" "\\"
+        prefix = WINDOWS_UNC_PATH_STRING_PREFIX
+        unc_prefix = WINDOWS_UNC_DEVICE_PATH_STRING_PREFIX
 
         if final_path.startswith(prefix) and not path.startswith(prefix):
             if final_path.startswith(unc_prefix):
-                simplified_path = "\\\\" + final_path[len(unc_prefix) :]
+                simplified_path = WINDOWS_PATH_SEPARATOR * 2 + final_path[len(unc_prefix) :]
             else:
                 simplified_path = final_path[len(prefix) :]
 

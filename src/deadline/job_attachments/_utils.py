@@ -3,7 +3,7 @@
 import datetime
 from functools import lru_cache, wraps
 from hashlib import shake_256
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import random
 import time
 from typing import Any, Callable, Optional, Tuple, Type, Union
@@ -30,6 +30,13 @@ WINDOWS_MAX_PATH_LENGTH = 260
 """
 Windows Max path length limit of 260.
 https://learn.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation
+"""
+
+WINDOWS_PATH_SEPARATOR = "\\"
+"""
+The Windows path separator, spelled out because these helpers parse and build Windows
+paths on any host: the win32 branch below is exercised on POSIX in tests that patch
+sys.platform, where os.sep would be "/".
 """
 
 WINDOWS_UNC_PATH_STRING_PREFIX = "\\\\?\\"
@@ -85,10 +92,14 @@ def _normalize_windows_path(path: Union[Path, str]) -> Path:
     """
     p_str = str(path)
     if p_str.startswith(WINDOWS_UNC_DEVICE_PATH_STRING_PREFIX):
-        # Restore the leading pair of backslashes the \\?\UNC\ form replaced. Stripping
-        # the prefix outright would leave a network path looking relative, which would
-        # then compare unequal against the same path in its normal form.
-        return Path("\\\\" + p_str[len(WINDOWS_UNC_DEVICE_PATH_STRING_PREFIX) :])
+        # Restore the leading pair of backslashes that the \\?\UNC\ form replaced, so the
+        # result is \\server\share again. Stripping the prefix outright would leave a
+        # network path looking relative, which would then compare unequal against the
+        # same path in its normal form. os.sep is not used here because this function
+        # parses Windows paths regardless of the running platform.
+        return Path(
+            WINDOWS_PATH_SEPARATOR * 2 + p_str[len(WINDOWS_UNC_DEVICE_PATH_STRING_PREFIX) :]
+        )
     if p_str.startswith(WINDOWS_UNC_PATH_STRING_PREFIX):
         return Path(p_str[len(WINDOWS_UNC_PATH_STRING_PREFIX) :])
     return Path(path)
@@ -150,13 +161,16 @@ def _get_long_path_compatible_path(original_path: Union[str, Path]) -> Path:
     ):
         # A prefixed path is handed to the filesystem verbatim, with the normalization
         # that would otherwise accept forward slashes turned off, so separators have to
-        # be converted first.
-        normalized = original_path_string.replace("/", "\\")
+        # be converted first. PureWindowsPath is used rather than Path because Path
+        # follows the running platform, and this branch is exercised on POSIX hosts by
+        # tests that patch sys.platform.
+        pure = PureWindowsPath(original_path_string)
+        normalized = str(pure)
 
-        if normalized.startswith("\\\\"):
-            # A network path (\\server\share) takes the \\?\UNC\ form, replacing the
-            # leading pair of backslashes. Prepending \\?\ verbatim would produce
-            # \\?\\\server\share, which Windows rejects.
+        if pure.drive.startswith(WINDOWS_PATH_SEPARATOR * 2):
+            # A network path (\\server\share) takes the \\?\UNC\ form, which replaces the
+            # leading pair of backslashes with the prefix. Prepending \\?\ verbatim would
+            # produce \\?\\\server\share, which Windows rejects.
             return Path(WINDOWS_UNC_DEVICE_PATH_STRING_PREFIX + normalized[2:])
 
         return Path(WINDOWS_UNC_PATH_STRING_PREFIX + normalized)

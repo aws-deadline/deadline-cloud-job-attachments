@@ -62,6 +62,7 @@ from deadline.job_attachments.download import (
     WINDOWS_MAX_PATH_LENGTH,
     TEMP_DOWNLOAD_ADDED_CHARS_LENGTH,
 )
+from deadline.job_attachments._utils import WINDOWS_UNC_PATH_STRING_PREFIX
 from deadline.job_attachments.exceptions import (
     AssetSyncError,
     JobAttachmentsError,
@@ -1955,7 +1956,15 @@ class TestFullDownload:
         sys.platform != "win32",
         reason="This test is for Windows path only.",
     )
-    def test_windows_long_path_UNC_notation_WindowsOS(self):
+    @pytest.mark.parametrize("registry_enabled", [True, False])
+    def test_windows_long_path_UNC_notation_WindowsOS(self, registry_enabled):
+        """
+        A download error on an already-\\\\?\\-prefixed long path surfaces as AssetSyncError.
+
+        Parametrized over the registry setting to pin down that it makes no difference:
+        the prefix is applied based on path length alone, because LongPathsEnabled only
+        takes effect for processes declaring longPathAware in their manifest.
+        """
         (
             file_path,
             local_path,
@@ -1973,7 +1982,7 @@ class TestFullDownload:
             return_value=mock_transfer_manager,
         ), patch(
             f"{deadline.__package__}.job_attachments._utils._is_windows_long_path_registry_enabled",
-            return_value=False,
+            return_value=registry_enabled,
         ), patch(f"{deadline.__package__}.job_attachments.download.Path.mkdir"):
             with pytest.raises(AssetSyncError) as exc:
                 download_file(
@@ -1990,6 +1999,12 @@ class TestFullDownload:
         assert str(exc.value) == expected_message
         mock_lock.assert_not_called()
         mock_collision_dict.assert_not_called()
+
+        # The path handed to the transfer manager keeps its prefix exactly once,
+        # regardless of the registry setting.
+        fileobj = mock_transfer_manager.download.call_args.kwargs["fileobj"]
+        assert fileobj.startswith(WINDOWS_UNC_PATH_STRING_PREFIX)
+        assert not fileobj.startswith(WINDOWS_UNC_PATH_STRING_PREFIX * 2)
 
     def setup_mocks_and_file_path(self):
         mock_s3_client = MagicMock()
@@ -2014,47 +2029,6 @@ class TestFullDownload:
             mock_s3_client,
             mock_transfer_manager,
         )
-
-    @pytest.mark.skipif(
-        sys.platform != "win32",
-        reason="This test is for Windows path only.",
-    )
-    def test_windows_long_path_UNC_notation_and_registry_WindowsOS(self):
-        (
-            file_path,
-            local_path,
-            mock_collision_dict,
-            mock_lock,
-            mock_s3_client,
-            mock_transfer_manager,
-        ) = self.setup_mocks_and_file_path()
-
-        with patch(
-            f"{deadline.__package__}.job_attachments.download.get_s3_client",
-            return_value=mock_s3_client,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.download.get_s3_transfer_manager",
-            return_value=mock_transfer_manager,
-        ), patch(
-            f"{deadline.__package__}.job_attachments._utils._is_windows_long_path_registry_enabled",
-            return_value=True,
-        ), patch(f"{deadline.__package__}.job_attachments.download.Path.mkdir"):
-            with pytest.raises(AssetSyncError) as exc:
-                download_file(
-                    file_path,
-                    HashAlgorithm.XXH128,
-                    local_path,
-                    mock_lock,
-                    mock_collision_dict,
-                    "test-bucket",
-                    "rootPrefix/Data",
-                    mock_s3_client,
-                )
-
-        expected_message = "Test exception"
-        assert str(exc.value) == expected_message
-        mock_lock.assert_not_called()
-        mock_collision_dict.assert_not_called()
 
     def _test_create_copy_long_path_scenario(
         self, base_dir, long_base_name, expect_unc_prefix=False
