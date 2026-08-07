@@ -10,6 +10,7 @@ import deadline
 from deadline.job_attachments._utils import (
     TEMP_DOWNLOAD_ADDED_CHARS_LENGTH,
     WINDOWS_MAX_PATH_LENGTH,
+    WINDOWS_UNC_DEVICE_PATH_STRING_PREFIX,
     WINDOWS_UNC_PATH_STRING_PREFIX,
     _get_long_path_compatible_path,
     _normalize_windows_path,
@@ -30,6 +31,14 @@ class TestUtils:
             (r"\\?\D:\another\long\path", Path(r"D:\another\long\path")),
             (r"C:\normal\path.txt", Path(r"C:\normal\path.txt")),
             (r"Z:\already\normal\path", Path(r"Z:\already\normal\path")),
+            # The \\?\UNC\ form must come back as \\server\share, not UNC\server\share.
+            # These paths feed containment checks, so a corrupted form there would make a
+            # file inside the session directory look like it sits outside.
+            (
+                r"\\?\UNC\studio-nas\projects\scene.aep",
+                Path(r"\\studio-nas\projects\scene.aep"),
+            ),
+            (r"\\studio-nas\projects\scene.aep", Path(r"\\studio-nas\projects\scene.aep")),
         ],
     )
     def test_normalize_windows_path(self, input_path, expected):
@@ -198,3 +207,94 @@ class TestGetLongPathCompatiblePath:
             result = _get_long_path_compatible_path(long_posix_path)
 
         assert str(result) == long_posix_path
+
+    def _long_network_path(self) -> str:
+        r"""A long \\server\share path, the shape studio shared storage uses."""
+        path = "\\\\studio-nas\\projects\\" + "a" * WINDOWS_MAX_PATH_LENGTH + "\\scene.aep"
+        assert len(path) + TEMP_DOWNLOAD_ADDED_CHARS_LENGTH >= WINDOWS_MAX_PATH_LENGTH
+        return path
+
+    @pytest.mark.parametrize("registry_enabled", [True, False])
+    def test_long_network_path_gets_unc_device_prefix(self, registry_enabled):
+        r"""
+        A \\server\share path needs the \\?\UNC\ form, with the leading pair of
+        backslashes replaced. Prepending \\?\ verbatim yields \\?\\\server\share,
+        which Windows rejects, so a long path on shared storage would fail to open.
+        """
+        network_path = self._long_network_path()
+
+        with patch.object(sys, "platform", "win32"), patch(
+            self._REGISTRY_CHECK, return_value=registry_enabled
+        ):
+            result = _get_long_path_compatible_path(network_path)
+
+        assert str(result) == WINDOWS_UNC_DEVICE_PATH_STRING_PREFIX + network_path[2:]
+        assert not str(result).startswith(WINDOWS_UNC_PATH_STRING_PREFIX + "\\")
+
+    @pytest.mark.parametrize("registry_enabled", [True, False])
+    def test_network_path_is_idempotent(self, registry_enabled):
+        r"""An already \\?\UNC\ prefixed path is not prefixed twice."""
+        already_prefixed = WINDOWS_UNC_DEVICE_PATH_STRING_PREFIX + self._long_network_path()[2:]
+
+        with patch.object(sys, "platform", "win32"), patch(
+            self._REGISTRY_CHECK, return_value=registry_enabled
+        ):
+            result = _get_long_path_compatible_path(already_prefixed)
+
+        assert str(result) == already_prefixed
+
+    def test_short_network_path_is_unchanged(self):
+        r"""Network paths under the limit are left alone."""
+        short_network_path = r"\\studio-nas\projects\scene.aep"
+
+        with patch.object(sys, "platform", "win32"), patch(
+            self._REGISTRY_CHECK, return_value=False
+        ):
+            result = _get_long_path_compatible_path(short_network_path)
+
+        assert str(result) == short_network_path
+
+    @pytest.mark.parametrize("registry_enabled", [True, False])
+    def test_forward_slashes_are_normalized_before_prefixing(self, registry_enabled):
+        r"""
+        The \\?\ prefix turns off the Win32 path normalization that would otherwise
+        accept forward slashes, so separators must be converted first. Callers do
+        pass forward-slash strings; os.path.join output on a manifest-derived path
+        is one such source.
+        """
+        long_forward_slash_path = "C:/" + "a" * (
+            WINDOWS_MAX_PATH_LENGTH - TEMP_DOWNLOAD_ADDED_CHARS_LENGTH
+        )
+
+        with patch.object(sys, "platform", "win32"), patch(
+            self._REGISTRY_CHECK, return_value=registry_enabled
+        ):
+            result = _get_long_path_compatible_path(long_forward_slash_path)
+
+        assert "/" not in str(result), (
+            "A \\\\?\\ path is passed to the filesystem verbatim, so forward slashes "
+            "must be converted to backslashes before the prefix is applied."
+        )
+        assert str(result) == WINDOWS_UNC_PATH_STRING_PREFIX + long_forward_slash_path.replace(
+            "/", "\\"
+        )
+
+    @pytest.mark.parametrize(
+        "prefixed, expected",
+        [
+            (
+                WINDOWS_UNC_DEVICE_PATH_STRING_PREFIX + r"studio-nas\projects\scene.aep",
+                r"\\studio-nas\projects\scene.aep",
+            ),
+            (WINDOWS_UNC_PATH_STRING_PREFIX + r"C:\projects\scene.aep", r"C:\projects\scene.aep"),
+        ],
+        ids=["network", "drive-letter"],
+    )
+    def test_prefix_is_stripped_back_to_the_original_form(self, prefixed, expected):
+        r"""
+        Stripping has to invert prefixing for both forms. `_normalize_windows_path` feeds
+        `_is_relative_to` and the session-directory containment check in
+        os_file_permission, so a network path that strips to `UNC\server\share` would
+        read as relative and compare unequal against its own normal form.
+        """
+        assert str(_normalize_windows_path(prefixed)) == expected

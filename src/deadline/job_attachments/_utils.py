@@ -38,6 +38,14 @@ When this is prepended to any path on Windows,
 it becomes a UNC path and is allowed to go over the 260 max path length limit.
 """
 
+WINDOWS_UNC_DEVICE_PATH_STRING_PREFIX = "\\\\?\\UNC\\"
+"""
+The equivalent prefix for a network path (\\\\server\\share). The leading pair of
+backslashes is replaced by this prefix, giving \\\\?\\UNC\\server\\share. Prepending
+the drive-letter form verbatim would produce \\\\?\\\\\\server\\share, which Windows
+rejects.
+"""
+
 
 def _join_s3_paths(root: str, *args: str):
     return "/".join([root, *args])
@@ -73,11 +81,16 @@ def _get_bucket_and_object_key(s3_path: str) -> Tuple[str, str]:
 
 def _normalize_windows_path(path: Union[Path, str]) -> Path:
     """
-    Strips \\\\?\\ prefix from Windows paths.
+    Strips the \\\\?\\ or \\\\?\\UNC\\ prefix from Windows paths.
     """
     p_str = str(path)
-    if p_str.startswith("\\\\?\\"):
-        return Path(p_str[4:])
+    if p_str.startswith(WINDOWS_UNC_DEVICE_PATH_STRING_PREFIX):
+        # Restore the leading pair of backslashes the \\?\UNC\ form replaced. Stripping
+        # the prefix outright would leave a network path looking relative, which would
+        # then compare unequal against the same path in its normal form.
+        return Path("\\\\" + p_str[len(WINDOWS_UNC_DEVICE_PATH_STRING_PREFIX) :])
+    if p_str.startswith(WINDOWS_UNC_PATH_STRING_PREFIX):
+        return Path(p_str[len(WINDOWS_UNC_PATH_STRING_PREFIX) :])
     return Path(path)
 
 
@@ -135,8 +148,18 @@ def _get_long_path_compatible_path(original_path: Union[str, Path]) -> Path:
         len(original_path_string) + TEMP_DOWNLOAD_ADDED_CHARS_LENGTH >= WINDOWS_MAX_PATH_LENGTH
         and not original_path_string.startswith(WINDOWS_UNC_PATH_STRING_PREFIX)
     ):
-        # Prepend \\?\ to the file name to treat it as an UNC path
-        return Path(WINDOWS_UNC_PATH_STRING_PREFIX + original_path_string)
+        # A prefixed path is handed to the filesystem verbatim, with the normalization
+        # that would otherwise accept forward slashes turned off, so separators have to
+        # be converted first.
+        normalized = original_path_string.replace("/", "\\")
+
+        if normalized.startswith("\\\\"):
+            # A network path (\\server\share) takes the \\?\UNC\ form, replacing the
+            # leading pair of backslashes. Prepending \\?\ verbatim would produce
+            # \\?\\\server\share, which Windows rejects.
+            return Path(WINDOWS_UNC_DEVICE_PATH_STRING_PREFIX + normalized[2:])
+
+        return Path(WINDOWS_UNC_PATH_STRING_PREFIX + normalized)
     return Path(original_path_string)
 
 
