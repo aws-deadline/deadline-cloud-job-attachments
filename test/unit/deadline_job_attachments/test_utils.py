@@ -206,7 +206,11 @@ class TestGetLongPathCompatiblePath:
         with patch.object(sys, "platform", "linux"):
             result = _get_long_path_compatible_path(long_posix_path)
 
-        assert str(result) == long_posix_path
+        # Compared as Path, not str: patching sys.platform does not change pathlib's
+        # flavour, so on a Windows runner str(Path("/a")) is "\a" and a string compare
+        # against the input would fail for a reason unrelated to the prefix logic.
+        assert result == Path(long_posix_path)
+        assert WINDOWS_UNC_PATH_STRING_PREFIX not in str(result)
 
     def _long_network_path(self) -> str:
         r"""A long \\server\share path, the shape studio shared storage uses."""
