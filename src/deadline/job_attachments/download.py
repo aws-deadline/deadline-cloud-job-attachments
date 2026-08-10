@@ -694,7 +694,14 @@ def _download_files_parallel(
                 # through the Win32 normalization the prefix exists to bypass, so an
                 # unprefixed >MAX_PATH path fails there. It is stripped once at the point
                 # it is surfaced, in get_download_summary_statistics().
-                downloaded_file_names.append(str(local_file_name.resolve()))
+                #
+                # Re-applied explicitly rather than relying on resolve() to preserve it:
+                # whether resolve() keeps an existing prefix varies by Python version (3.8
+                # and 3.9 strip it, 3.10+ keep it). The helper is idempotent, so this is a
+                # no-op when resolve() already kept it.
+                downloaded_file_names.append(
+                    str(_get_long_path_compatible_path(local_file_name.resolve()))
+                )
                 if progress_tracker:
                     progress_tracker.increase_processed(1, 0)
                     progress_tracker.report_progress()
