@@ -2032,8 +2032,12 @@ class TestFullDownload:
         # Deliberately unprefixed: download_file is responsible for applying the prefix,
         # so a pre-prefixed destination would bypass the conversion under test.
         local_path = "C:\\path\\to\\a\\very\\long\\file\\path\\that\\exceeds\\the\\windows\\max\\path\\length\\for\\testing\\max\\file\\path\\error\\handling\\when\\download\\or\\syncing\\assest\\using\\job\\attachment"
-        assert len(local_path) + TEMP_DOWNLOAD_ADDED_CHARS_LENGTH >= WINDOWS_MAX_PATH_LENGTH, (
-            f"The destination must be long enough to require the prefix, got {len(local_path)}"
+        # download_file prefixes local_download_dir joined with the manifest's relative
+        # path, not the directory alone, so the length check has to measure the join --
+        # local_path on its own is only 167 chars and would not require the prefix.
+        destination = str(Path(local_path).joinpath(file_path.path))
+        assert len(destination) + TEMP_DOWNLOAD_ADDED_CHARS_LENGTH >= WINDOWS_MAX_PATH_LENGTH, (
+            f"The destination must be long enough to require the prefix, got {len(destination)}"
         )
         return (
             file_path,
