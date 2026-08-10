@@ -86,6 +86,7 @@ from deadline.job_attachments.progress_tracker import (
     DownloadSummaryStatistics,
     ProgressReportMetadata,
     ProgressStatus,
+    ProgressTracker,
 )
 from deadline.job_attachments.asset_manifests.decode import decode_manifest
 
@@ -3212,21 +3213,25 @@ def test_download_file_allows_path_within_download_dir(tmp_path):
 )
 def test_download_summary_paths_do_not_carry_the_unc_prefix(tmp_path: Path):
     r"""
-    Paths in the download summary must be in the plain, user-facing form.
+    The prefix survives internally but is stripped where paths are surfaced.
 
     `download_file` returns the path it actually wrote to, which for a long destination
-    carries `\\?\`. That value flows into the summary statistics and from there into JSON
-    output, and many tools cannot parse the prefixed form. `resolve()` alone is not enough:
-    whether it strips the prefix varies by Python version, so the prefix is removed
-    explicitly.
+    carries `\\?\`. Two consumers want different forms of that value:
 
-    Same split as `_write_manifest` -- the prefix stays confined to the filesystem calls
-    and never reaches a return value.
+    - `_set_fs_group` passes each string to `win32security.GetFileSecurity`/
+      `SetFileSecurity`, which go through the Win32 normalization the prefix exists to
+      bypass -- so an unprefixed >MAX_PATH path fails there.
+    - the summary statistics land in JSON output that many tools cannot parse in the
+      `\\?\` form.
+
+    So `_download_files_parallel` keeps the prefix and `get_download_summary_statistics`
+    strips it. Stripping earlier would break the win32 calls; stripping later would leak.
     """
     # A destination long enough that download_file must prefix it.
     long_dir = tmp_path
     while len(str(long_dir)) < WINDOWS_MAX_PATH_LENGTH:
         long_dir = long_dir / ("d" * 10)
+    first_long_component = tmp_path / long_dir.relative_to(tmp_path).parts[0]
     os.makedirs(WINDOWS_UNC_PATH_STRING_PREFIX + str(long_dir), exist_ok=True)
 
     file_path = ManifestPathv2023_03_03(path="scene.ma", hash="filehash", size=4, mtime=1234000000)
@@ -3242,33 +3247,49 @@ def test_download_summary_paths_do_not_carry_the_unc_prefix(tmp_path: Path):
     mock_transfer_manager = MagicMock()
     mock_transfer_manager.download.side_effect = fake_download
 
-    with patch(
-        f"{deadline.__package__}.job_attachments.download.get_s3_client",
-        return_value=MagicMock(),
-    ), patch(
-        f"{deadline.__package__}.job_attachments.download.get_s3_transfer_manager",
-        return_value=mock_transfer_manager,
-    ):
-        downloaded = download._download_files_parallel(
-            files=[file_path],
-            hash_algorithm=HashAlgorithm.XXH128,
-            num_download_workers=1,
-            local_download_dir=str(long_dir),
-            s3_bucket="test-bucket",
-            cas_prefix="rootPrefix/Data",
-            s3_client=MagicMock(),
+    # pytest's tmp_path teardown cannot remove a >MAX_PATH tree, so drop it here through
+    # the prefix rather than leaving an error at teardown.
+    try:
+        with patch(
+            f"{deadline.__package__}.job_attachments.download.get_s3_client",
+            return_value=MagicMock(),
+        ), patch(
+            f"{deadline.__package__}.job_attachments.download.get_s3_transfer_manager",
+            return_value=mock_transfer_manager,
+        ):
+            downloaded = download._download_files_parallel(
+                files=[file_path],
+                hash_algorithm=HashAlgorithm.XXH128,
+                num_download_workers=1,
+                local_download_dir=str(long_dir),
+                s3_bucket="test-bucket",
+                cas_prefix="rootPrefix/Data",
+                s3_client=MagicMock(),
+            )
+
+        # The internal value keeps the prefix, so consumers that hand it to win32 APIs
+        # still work.
+        assert len(downloaded) == 1
+        written = downloaded[0]
+        assert os.path.isfile(_get_long_path_compatible_path(written))
+        assert written.startswith(WINDOWS_UNC_PATH_STRING_PREFIX), (
+            "The internal path must keep the prefix -- _set_fs_group passes it to "
+            f"win32security, which cannot take a bare long path. Got: {written[:60]}"
         )
 
-    # The write went through the prefix -- the file exists at the long path.
-    assert len(downloaded) == 1
-    written = downloaded[0]
-    assert os.path.isfile(_get_long_path_compatible_path(written))
-
-    # But the reported path is plain.
-    assert not written.startswith(WINDOWS_UNC_PATH_STRING_PREFIX), (
-        f"The summary path leaked the internal prefix: {written[:60]}"
-    )
-    assert len(written) > WINDOWS_MAX_PATH_LENGTH, (
-        "The destination must be long enough that the prefix was applied, otherwise this "
-        "test would pass without exercising the strip."
-    )
+        # The surfaced value does not.
+        summary = ProgressTracker(
+            status=ProgressStatus.DOWNLOAD_IN_PROGRESS, total_files=1, total_bytes=4
+        ).get_download_summary_statistics({str(long_dir): downloaded})
+        reported = summary.downloaded_files[0]
+        assert not reported.startswith(WINDOWS_UNC_PATH_STRING_PREFIX), (
+            f"The summary path leaked the internal prefix: {reported[:60]}"
+        )
+        assert len(reported) > WINDOWS_MAX_PATH_LENGTH, (
+            "The destination must be long enough that the prefix was applied, otherwise "
+            "this test would pass without exercising the strip."
+        )
+    finally:
+        shutil.rmtree(
+            WINDOWS_UNC_PATH_STRING_PREFIX + str(first_long_component), ignore_errors=True
+        )

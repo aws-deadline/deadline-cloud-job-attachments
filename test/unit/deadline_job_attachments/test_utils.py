@@ -217,26 +217,16 @@ class TestGetLongPathCompatiblePath:
         assert result == Path(long_posix_path)
         assert WINDOWS_UNC_PATH_STRING_PREFIX not in str(result)
 
-    @pytest.mark.parametrize(
-        ("component", "description"),
-        [
-            pytest.param("\\.\\", "single dot", id="dot"),
-            pytest.param("\\..\\", "parent", id="dotdot"),
-        ],
-    )
-    def test_dot_segments_are_normalized_away(self, component, description):
+    def test_single_dot_segments_are_normalized_away(self):
         r"""
-        Dot segments must not survive into a prefixed path.
+        "." segments must not survive into a prefixed path.
 
-        The \\?\ prefix turns off the Win32 normalization that would otherwise resolve
-        them, so a surviving `..` is passed to the filesystem literally and rejected.
-        PureWindowsPath alone is not enough here: it drops `.` but deliberately preserves
-        `..`, since resolving that lexically is unsafe if a component is a symlink. This
-        code normalizes lexically anyway -- the alternative is handing Windows a path it
-        will reject outright.
+        The \\?\ prefix turns off the Win32 normalization that would otherwise drop them,
+        so a survivor is passed to the filesystem literally. Unlike "..", collapsing "."
+        cannot change which file is targeted, so it is safe to do lexically.
         """
         padding = "a" * WINDOWS_MAX_PATH_LENGTH
-        path = f"C:\\assets\\project{component}shared\\{padding}\\scene.ma"
+        path = f"C:\\assets\\project\\.\\shared\\{padding}\\scene.ma"
         assert len(path) + TEMP_DOWNLOAD_ADDED_CHARS_LENGTH >= WINDOWS_MAX_PATH_LENGTH
 
         with patch.object(sys, "platform", "win32"), patch(
@@ -246,27 +236,58 @@ class TestGetLongPathCompatiblePath:
 
         assert str(result).startswith(WINDOWS_UNC_PATH_STRING_PREFIX)
         body = str(result)[len(WINDOWS_UNC_PATH_STRING_PREFIX) :]
-        assert ".." not in body, f"the {description} segment survived: {body[:60]}"
-        assert "\\.\\" not in body, f"the {description} segment survived: {body[:60]}"
+        assert "\\.\\" not in body, f"the dot segment survived: {body[:60]}"
 
-    def test_dotdot_is_resolved_not_merely_stripped(self):
+    @pytest.mark.parametrize(
+        ("path_template", "description"),
+        [
+            pytest.param(
+                "C:\\assets\\project\\..\\shared\\{padding}\\scene.ma", "drive", id="drive"
+            ),
+            pytest.param(
+                "\\\\studio-nas\\projects\\a\\..\\b\\{padding}\\scene.aep", "network", id="network"
+            ),
+        ],
+    )
+    def test_dotdot_is_rejected_rather_than_collapsed(self, path_template, description):
         r"""
-        `..` must remove the preceding component, not just vanish.
+        A ".." in a long path must raise, not be silently collapsed.
 
-        Deleting the `..` on its own would silently retarget the path at a *different*
-        directory, which is worse than failing: an upload or download would read or write
-        the wrong location.
+        Collapsing lexically would be unsound. Callers validate first with symlink-aware
+        resolution and only then call this function -- download_file runs
+        _ensure_paths_within_directory (which uses Path.resolve()) at download.py:514
+        before prefixing at :517. If a component is a symlink the two disagree, so a
+        lexical collapse can write somewhere other than the location that was validated:
+
+            root C:\dl, C:\dl\link -> C:\dl\sub\deep, manifest path link\..\..\evil.txt
+            validated (resolve):  C:\dl\evil.txt   -- inside the root, accepted
+            written   (lexical):  C:\evil.txt      -- outside the root
+
+        A literal ".." past the prefix was already rejected by the filesystem, so raising
+        here loses nothing: it turns an opaque OSError into an explicit error, rather than
+        turning a loud failure into a silent escape.
         """
-        padding = "a" * WINDOWS_MAX_PATH_LENGTH
-        path = f"C:\\assets\\project\\..\\shared\\{padding}\\scene.ma"
+        path = path_template.format(padding="a" * WINDOWS_MAX_PATH_LENGTH)
 
         with patch.object(sys, "platform", "win32"), patch(
             self._REGISTRY_CHECK, return_value=False
         ):
-            result = _get_long_path_compatible_path(path)
+            with pytest.raises(ValueError, match=r"\.\."):
+                _get_long_path_compatible_path(path)
 
-        expected = WINDOWS_UNC_PATH_STRING_PREFIX + f"C:\\assets\\shared\\{padding}\\scene.ma"
-        assert str(result) == expected
+    def test_dotdot_is_allowed_in_short_paths(self):
+        r"""
+        The rejection is scoped to the branch that applies the prefix.
+
+        Short paths are returned untouched, so Win32 still resolves their ".." normally.
+        Raising for them would break callers that legitimately pass unresolved paths.
+        """
+        path = "C:\\assets\\project\\..\\shared\\scene.ma"
+
+        with patch.object(sys, "platform", "win32"), patch(
+            self._REGISTRY_CHECK, return_value=False
+        ):
+            assert _get_long_path_compatible_path(path) == Path(path)
 
     def test_network_path_keeps_leading_pair_through_normalization(self):
         r"""
@@ -276,7 +297,7 @@ class TestGetLongPathCompatiblePath:
         branch would not be taken.
         """
         padding = "a" * WINDOWS_MAX_PATH_LENGTH
-        path = f"\\\\studio-nas\\projects\\a\\..\\b\\{padding}\\scene.aep"
+        path = f"\\\\studio-nas\\projects\\.\\b\\{padding}\\scene.aep"
 
         with patch.object(sys, "platform", "win32"), patch(
             self._REGISTRY_CHECK, return_value=False
@@ -457,24 +478,45 @@ class TestGetLongPathCompatiblePathAgainstRealFilesystem:
 
         assert self._read_through(requested) == contents
 
-    def test_long_path_with_dot_segments_opens(self, tmp_path: Path):
+    def test_long_path_with_single_dot_segments_opens(self, tmp_path: Path):
         r"""
-        A long path containing `..` opens after the helper normalizes it.
+        A long path containing `.` opens after the helper normalizes it.
 
         This is the case that motivated normalizing at all: once \\?\ is applied, Windows
         stops resolving dot segments and rejects the path. A string-level test cannot show
         that rejection -- only a real open can.
+
+        Built as a string because Path() drops `.` at construction, which would make the
+        test pass without the helper doing anything.
         """
         contents = b"dot segment long path"
         long_file = self._write_long_file(tmp_path, contents)
 
-        # Detour through the parent and back: <dir>/<name>/../<name>/scene.ma
+        # <dir>\.\scene.ma
+        with_dot = f"{long_file.parent}\\.\\{long_file.name}"
+        assert len(with_dot) + TEMP_DOWNLOAD_ADDED_CHARS_LENGTH > WINDOWS_MAX_PATH_LENGTH
+
+        assert self._read_through(Path(with_dot)) == contents
+
+    def test_long_path_with_dotdot_is_refused_before_reaching_the_filesystem(self, tmp_path: Path):
+        r"""
+        `..` in a long path raises rather than being collapsed -- see
+        test_dotdot_is_rejected_rather_than_collapsed for why.
+
+        Kept here as well as at the string level to pin that the pre-existing behaviour is
+        not regressed: Windows already rejected a literal `..` past the prefix, so this
+        path never opened. The change swaps an opaque OSError for an explicit ValueError.
+        """
+        long_file = self._write_long_file(tmp_path, b"dot segment long path")
+
+        # Detour through the parent and back: <dir>\<name>\..\<name>\scene.ma
         leaf = long_file.parent
         with_dotdot = leaf / ".." / leaf.name / long_file.name
         assert ".." in str(with_dotdot)
         assert len(str(with_dotdot)) + TEMP_DOWNLOAD_ADDED_CHARS_LENGTH > WINDOWS_MAX_PATH_LENGTH
 
-        assert self._read_through(with_dotdot) == contents
+        with pytest.raises(ValueError, match=r"\.\."):
+            self._read_through(with_dotdot)
 
     def test_long_network_path_opens(self, tmp_path: Path):
         r"""

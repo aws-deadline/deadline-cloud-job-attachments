@@ -270,9 +270,10 @@ def _manifest_diff(
     # Placeholder Asset Manager
     asset_manager = S3AssetManager()
 
-    # parse the given manifest to compare against.
+    # parse the given manifest to compare against. Re-prefixed for the same reason as in
+    # _read_manifests: the caller was handed the plain path by _write_manifest.
     local_manifest_object: BaseAssetManifest
-    with open(manifest) as input_file:
+    with open(_get_long_path_compatible_path(manifest)) as input_file:
         manifest_data_str = input_file.read()
         local_manifest_object = decode_manifest(manifest_data_str)
 

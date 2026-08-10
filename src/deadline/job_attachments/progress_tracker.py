@@ -11,6 +11,7 @@ from threading import Lock
 from typing import Callable, Dict, List, Optional, Union
 
 from ._path_summarization import human_readable_file_size
+from ._utils import _normalize_windows_path
 
 CALLBACK_INTERVAL = 1  # in seconds
 MAX_FILES_IN_CHUNK = 50
@@ -353,9 +354,14 @@ class ProgressTracker:
         summary_statistics_dict["file_counts_by_root_directory"] = {
             root: len(paths) for root, paths in downloaded_files_paths_by_root.items()
         }
-        all_files = []
+        all_files: list[str] = []
         for _, paths in downloaded_files_paths_by_root.items():
-            all_files.extend(paths)
+            # This is where downloaded paths stop being used for filesystem calls and
+            # start being shown to people, so it is where the \\?\ prefix comes off. It
+            # is retained upstream because callers such as _set_fs_group() pass these
+            # strings to win32 APIs that need it. Stripped explicitly rather than via
+            # resolve(), which preserves the prefix when the input already carries it.
+            all_files.extend(str(_normalize_windows_path(path)) for path in paths)
         summary_statistics_dict["downloaded_files"] = sorted(all_files)
         return DownloadSummaryStatistics(**summary_statistics_dict)
 

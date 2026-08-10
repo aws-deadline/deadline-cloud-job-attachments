@@ -40,6 +40,12 @@ paths on any host: the win32 branch below is exercised on POSIX in tests that pa
 sys.platform, where os.sep would be "/".
 """
 
+_WINDOWS_PARENT_DIR_COMPONENT = ".."
+"""
+The parent-directory component. Spelled out rather than taken from os.pardir because
+these helpers parse Windows paths on any host.
+"""
+
 WINDOWS_UNC_PATH_STRING_PREFIX = "\\\\?\\"
 """
 When this is prepended to any path on Windows,
@@ -155,6 +161,9 @@ def _get_long_path_compatible_path(original_path: Union[str, Path]) -> Path:
 
     :param original_path: Original unmodified path/string representing an absolute path.
     :return: A Path object representing the long path compatible path.
+    :raises ValueError: if a long Windows path contains a ".." component. See the comment
+        in the branch below -- collapsing it here could target a different file than the
+        caller validated.
     """
 
     original_path_string = str(original_path)
@@ -166,15 +175,31 @@ def _get_long_path_compatible_path(original_path: Union[str, Path]) -> Path:
         and not original_path_string.startswith(WINDOWS_UNC_PATH_STRING_PREFIX)
     ):
         # A prefixed path is handed to the filesystem verbatim, with the Win32
-        # normalization turned off, so it has to be fully normalized first.
+        # normalization turned off, so it has to be normalized here instead.
         #
-        # ntpath.normpath rather than PureWindowsPath: both convert separators and drop
-        # "." components, but PureWindowsPath deliberately preserves ".." (it cannot
-        # safely resolve them without touching the filesystem, since a component may be
-        # a symlink). A surviving ".." is passed through literally once the prefix is
-        # applied and the filesystem rejects it. normpath collapses it lexically, keeps
-        # the leading pair of backslashes on \\server\share, and is idempotent on paths
-        # that already carry the prefix.
+        # ".." is rejected rather than collapsed. Collapsing it lexically would be
+        # unsound: callers such as download_file validate the path first with
+        # symlink-aware resolution (_ensure_paths_within_directory -> Path.resolve())
+        # and only then pass it here, so a lexical collapse can produce a *different*
+        # target than the one that was validated whenever a component is a symlink --
+        # turning "manifest with .. fails loudly" into "manifest with .. may write
+        # outside the root". Resolving with Path.resolve() instead would touch the
+        # filesystem on a path that may not exist yet, so the safe option is to refuse.
+        #
+        # This does not regress the case that motivated normalizing: a literal ".."
+        # past the prefix was already rejected by the filesystem. It only replaces an
+        # opaque OSError with an explicit one.
+        if _WINDOWS_PARENT_DIR_COMPONENT in PureWindowsPath(original_path_string).parts:
+            raise ValueError(
+                "Cannot build a long-path-compatible path from a path containing '..': "
+                f"{original_path_string}. Resolve the path before passing it here -- "
+                "collapsing '..' here could silently target a different file than the "
+                "caller validated."
+            )
+
+        # ntpath.normpath rather than PureWindowsPath: both convert separators, but
+        # normpath also drops "." components, keeps the leading pair of backslashes on
+        # \\server\share, and is idempotent on paths that already carry the prefix.
         #
         # ntpath rather than os.path because this branch parses Windows paths on any
         # host: it is exercised on POSIX by tests that patch sys.platform, where

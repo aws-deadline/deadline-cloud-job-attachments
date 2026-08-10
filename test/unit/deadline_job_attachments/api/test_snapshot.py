@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import sys
 import tempfile
 from typing import List, Optional, Set
@@ -49,29 +50,39 @@ class TestSnapshotAPI:
         long_destination = Path(temp_dir)
         while len(str(long_destination)) < WINDOWS_MAX_PATH_LENGTH:
             long_destination = long_destination / ("d" * 10)
+        first_long_component = Path(temp_dir) / long_destination.relative_to(temp_dir).parts[0]
         os.makedirs(WINDOWS_UNC_PATH_STRING_PREFIX + str(long_destination), exist_ok=True)
         assert len(str(long_destination)) > WINDOWS_MAX_PATH_LENGTH
 
-        # and a short source folder with a file in it
-        root_dir = os.path.join(temp_dir, "root")
-        os.makedirs(root_dir)
-        Path(os.path.join(root_dir, "file.txt")).touch()
+        # The temp_dir fixture tears down with shutil.rmtree on the *unprefixed* path,
+        # which cannot reach past MAX_PATH -- it would error the test at teardown even
+        # after the assertions pass. So remove the long subtree here, through the prefix,
+        # and leave the fixture only short paths to clean up.
+        try:
+            # and a short source folder with a file in it
+            root_dir = os.path.join(temp_dir, "root")
+            os.makedirs(root_dir)
+            Path(os.path.join(root_dir, "file.txt")).touch()
 
-        # When
-        manifest: Optional[ManifestSnapshot] = _manifest_snapshot(
-            root=root_dir, destination=str(long_destination), name="test"
-        )
+            # When
+            manifest: Optional[ManifestSnapshot] = _manifest_snapshot(
+                root=root_dir, destination=str(long_destination), name="test"
+            )
 
-        # Then
-        assert manifest is not None
-        # 1. The returned path is in the plain, user-facing form.
-        assert not manifest.manifest.startswith(WINDOWS_UNC_PATH_STRING_PREFIX)
-        assert len(manifest.manifest) > WINDOWS_MAX_PATH_LENGTH, (
-            "The returned path must still be a long one, otherwise the destination was "
-            "not long enough to exercise the prefix branch."
-        )
-        # 2. The manifest was nonetheless written, which is only possible through the prefix.
-        assert os.path.isfile(_get_long_path_compatible_path(manifest.manifest))
+            # Then
+            assert manifest is not None
+            # 1. The returned path is in the plain, user-facing form.
+            assert not manifest.manifest.startswith(WINDOWS_UNC_PATH_STRING_PREFIX)
+            assert len(manifest.manifest) > WINDOWS_MAX_PATH_LENGTH, (
+                "The returned path must still be a long one, otherwise the destination was "
+                "not long enough to exercise the prefix branch."
+            )
+            # 2. The manifest was nonetheless written, which is only possible through the prefix.
+            assert os.path.isfile(_get_long_path_compatible_path(manifest.manifest))
+        finally:
+            shutil.rmtree(
+                WINDOWS_UNC_PATH_STRING_PREFIX + str(first_long_component), ignore_errors=True
+            )
 
     def test_snapshot_empty_folder(self, temp_dir):
         """
