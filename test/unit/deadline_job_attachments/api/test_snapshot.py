@@ -3,11 +3,13 @@
 import json
 import os
 from pathlib import Path
+import sys
 import tempfile
 from typing import List, Optional, Set
 from deadline.job_attachments.api.manifest import _manifest_snapshot
 from deadline.job_attachments.models import ManifestSnapshot
 from deadline.job_attachments._utils import (
+    WINDOWS_MAX_PATH_LENGTH,
     WINDOWS_UNC_PATH_STRING_PREFIX,
     _get_long_path_compatible_path,
     _retry,
@@ -27,25 +29,48 @@ class TestSnapshotAPI:
             manifest_payload = json.load(manifest_file)
             return {item["path"] for item in manifest_payload["paths"]}
 
+    @pytest.mark.skipif(
+        sys.platform != "win32",
+        reason="The destination must exceed MAX_PATH for the prefix to be applied at all.",
+    )
     def test_snapshot_returns_path_without_unc_prefix(self, temp_dir):
         """
-        The returned manifest path is surfaced to users and other tools, many of which
-        cannot parse the \\\\?\\ form, so it must never carry the prefix.
+        Both halves of the plain-return/prefixed-write split, at a destination long
+        enough to actually trigger it.
+
+        A short destination never enters the prefix branch, so the assertions below would
+        hold against the pre-change implementation too and the test would prove nothing.
+        The destination here is over MAX_PATH, so the manifest can only be written through
+        the prefix -- while the returned path must stay plain, because it is surfaced to
+        users and to JSON output that many tools cannot parse in the \\\\?\\ form.
         """
-        # Given a folder with a file in it
+        # Given a long destination directory, created through the prefix since creating it
+        # is itself a filesystem operation subject to MAX_PATH.
+        long_destination = Path(temp_dir)
+        while len(str(long_destination)) < WINDOWS_MAX_PATH_LENGTH:
+            long_destination = long_destination / ("d" * 10)
+        os.makedirs(WINDOWS_UNC_PATH_STRING_PREFIX + str(long_destination), exist_ok=True)
+        assert len(str(long_destination)) > WINDOWS_MAX_PATH_LENGTH
+
+        # and a short source folder with a file in it
         root_dir = os.path.join(temp_dir, "root")
         os.makedirs(root_dir)
         Path(os.path.join(root_dir, "file.txt")).touch()
 
         # When
         manifest: Optional[ManifestSnapshot] = _manifest_snapshot(
-            root=root_dir, destination=temp_dir, name="test"
+            root=root_dir, destination=str(long_destination), name="test"
         )
 
         # Then
         assert manifest is not None
+        # 1. The returned path is in the plain, user-facing form.
         assert not manifest.manifest.startswith(WINDOWS_UNC_PATH_STRING_PREFIX)
-        # The file was still written, so the prefix was applied where it mattered.
+        assert len(manifest.manifest) > WINDOWS_MAX_PATH_LENGTH, (
+            "The returned path must still be a long one, otherwise the destination was "
+            "not long enough to exercise the prefix branch."
+        )
+        # 2. The manifest was nonetheless written, which is only possible through the prefix.
         assert os.path.isfile(_get_long_path_compatible_path(manifest.manifest))
 
     def test_snapshot_empty_folder(self, temp_dir):

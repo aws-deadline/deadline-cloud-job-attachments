@@ -76,6 +76,7 @@ from .os_file_permission import (
 from ._utils import (
     _get_long_path_compatible_path,
     _is_relative_to,
+    _normalize_windows_path,
 )
 from threading import Lock
 
@@ -688,7 +689,15 @@ def _download_files_parallel(
         for future in concurrent.futures.as_completed(futures):
             file_bytes, local_file_name = future.result()
             if local_file_name:
-                downloaded_file_names.append(str(local_file_name.resolve()))
+                # Strip the prefix before it reaches the summary. These paths are surfaced
+                # to users and written to JSON output, and many tools cannot parse the
+                # \\?\ form. resolve() does not reliably remove it -- whether it survives
+                # varies by Python version -- so it is stripped explicitly. Same
+                # plain-value/prefixed-file-operation split as _write_manifest: the prefix
+                # stays confined to the actual filesystem calls.
+                downloaded_file_names.append(
+                    str(_normalize_windows_path(local_file_name.resolve()))
+                )
                 if progress_tracker:
                     progress_tracker.increase_processed(1, 0)
                     progress_tracker.report_progress()

@@ -142,12 +142,15 @@ class TestGetLongPathCompatiblePath:
     r"""
     Tests for _get_long_path_compatible_path.
 
-    The `\\?\` prefix is what lets a file operation exceed MAX_PATH. Whether it is
-    needed depends on the *calling process* declaring longPathAware in its
-    application manifest, which is independent of the machine-wide
-    LongPathsEnabled registry setting. Deadline code runs inside DCC-hosted
-    interpreters whose host executables do not declare the flag, so the prefix is
-    required even when the registry setting is on.
+    The `\\?\` prefix is what lets a file operation exceed MAX_PATH, and it works
+    regardless of what the calling process declares.
+
+    The registry-state parametrization below pins that the result does not depend on
+    _is_windows_long_path_registry_enabled. Note that helper calls
+    RtlAreLongPathsEnabled, which reports the *process's* effective state -- registry
+    value AND the executable's longPathAware manifest declaration -- not the registry
+    value alone, so it returns False in a non-aware host even with the key set. The
+    prefix is now applied on length alone, which is deterministic either way.
     """
 
     _REGISTRY_CHECK = (
@@ -172,9 +175,9 @@ class TestGetLongPathCompatiblePath:
             result = _get_long_path_compatible_path(long_path)
 
         assert str(result).startswith(WINDOWS_UNC_PATH_STRING_PREFIX), (
-            "Long paths must get the \\\\?\\ prefix even when the LongPathsEnabled registry "
-            "setting is on, because the prefix is what allows a non-longPathAware host process "
-            "(e.g. a DCC executable) to exceed MAX_PATH."
+            "Long paths must get the \\\\?\\ prefix regardless of what "
+            "_is_windows_long_path_registry_enabled reports, so that the behaviour is "
+            "determined by path length alone."
         )
         assert str(result) == WINDOWS_UNC_PATH_STRING_PREFIX + long_path
 
@@ -213,6 +216,77 @@ class TestGetLongPathCompatiblePath:
         # against the input would fail for a reason unrelated to the prefix logic.
         assert result == Path(long_posix_path)
         assert WINDOWS_UNC_PATH_STRING_PREFIX not in str(result)
+
+    @pytest.mark.parametrize(
+        ("component", "description"),
+        [
+            pytest.param("\\.\\", "single dot", id="dot"),
+            pytest.param("\\..\\", "parent", id="dotdot"),
+        ],
+    )
+    def test_dot_segments_are_normalized_away(self, component, description):
+        r"""
+        Dot segments must not survive into a prefixed path.
+
+        The \\?\ prefix turns off the Win32 normalization that would otherwise resolve
+        them, so a surviving `..` is passed to the filesystem literally and rejected.
+        PureWindowsPath alone is not enough here: it drops `.` but deliberately preserves
+        `..`, since resolving that lexically is unsafe if a component is a symlink. This
+        code normalizes lexically anyway -- the alternative is handing Windows a path it
+        will reject outright.
+        """
+        padding = "a" * WINDOWS_MAX_PATH_LENGTH
+        path = f"C:\\assets\\project{component}shared\\{padding}\\scene.ma"
+        assert len(path) + TEMP_DOWNLOAD_ADDED_CHARS_LENGTH >= WINDOWS_MAX_PATH_LENGTH
+
+        with patch.object(sys, "platform", "win32"), patch(
+            self._REGISTRY_CHECK, return_value=False
+        ):
+            result = _get_long_path_compatible_path(path)
+
+        assert str(result).startswith(WINDOWS_UNC_PATH_STRING_PREFIX)
+        body = str(result)[len(WINDOWS_UNC_PATH_STRING_PREFIX) :]
+        assert ".." not in body, f"the {description} segment survived: {body[:60]}"
+        assert "\\.\\" not in body, f"the {description} segment survived: {body[:60]}"
+
+    def test_dotdot_is_resolved_not_merely_stripped(self):
+        r"""
+        `..` must remove the preceding component, not just vanish.
+
+        Deleting the `..` on its own would silently retarget the path at a *different*
+        directory, which is worse than failing: an upload or download would read or write
+        the wrong location.
+        """
+        padding = "a" * WINDOWS_MAX_PATH_LENGTH
+        path = f"C:\\assets\\project\\..\\shared\\{padding}\\scene.ma"
+
+        with patch.object(sys, "platform", "win32"), patch(
+            self._REGISTRY_CHECK, return_value=False
+        ):
+            result = _get_long_path_compatible_path(path)
+
+        expected = WINDOWS_UNC_PATH_STRING_PREFIX + f"C:\\assets\\shared\\{padding}\\scene.ma"
+        assert str(result) == expected
+
+    def test_network_path_keeps_leading_pair_through_normalization(self):
+        r"""
+        Normalizing must not eat the leading pair of backslashes on \\server\share.
+
+        A network path that lost one would stop being a network path, and the \\?\UNC\
+        branch would not be taken.
+        """
+        padding = "a" * WINDOWS_MAX_PATH_LENGTH
+        path = f"\\\\studio-nas\\projects\\a\\..\\b\\{padding}\\scene.aep"
+
+        with patch.object(sys, "platform", "win32"), patch(
+            self._REGISTRY_CHECK, return_value=False
+        ):
+            result = _get_long_path_compatible_path(path)
+
+        expected = (
+            WINDOWS_UNC_DEVICE_PATH_STRING_PREFIX + f"studio-nas\\projects\\b\\{padding}\\scene.aep"
+        )
+        assert str(result) == expected
 
     def _long_network_path(self) -> str:
         r"""A long \\server\share path, the shape studio shared storage uses."""
@@ -382,6 +456,25 @@ class TestGetLongPathCompatiblePathAgainstRealFilesystem:
         assert len(str(requested)) + TEMP_DOWNLOAD_ADDED_CHARS_LENGTH > WINDOWS_MAX_PATH_LENGTH
 
         assert self._read_through(requested) == contents
+
+    def test_long_path_with_dot_segments_opens(self, tmp_path: Path):
+        r"""
+        A long path containing `..` opens after the helper normalizes it.
+
+        This is the case that motivated normalizing at all: once \\?\ is applied, Windows
+        stops resolving dot segments and rejects the path. A string-level test cannot show
+        that rejection -- only a real open can.
+        """
+        contents = b"dot segment long path"
+        long_file = self._write_long_file(tmp_path, contents)
+
+        # Detour through the parent and back: <dir>/<name>/../<name>/scene.ma
+        leaf = long_file.parent
+        with_dotdot = leaf / ".." / leaf.name / long_file.name
+        assert ".." in str(with_dotdot)
+        assert len(str(with_dotdot)) + TEMP_DOWNLOAD_ADDED_CHARS_LENGTH > WINDOWS_MAX_PATH_LENGTH
+
+        assert self._read_through(with_dotdot) == contents
 
     def test_long_network_path_opens(self, tmp_path: Path):
         r"""

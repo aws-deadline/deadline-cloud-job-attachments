@@ -3,6 +3,7 @@
 import datetime
 from functools import lru_cache, wraps
 from hashlib import shake_256
+import ntpath
 from pathlib import Path, PureWindowsPath
 import random
 import time
@@ -141,11 +142,16 @@ def _get_long_path_compatible_path(original_path: Union[str, Path]) -> Path:
     make it long path compatible if needed on Windows and return the Path object
     https://learn.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation
 
-    The prefix is applied whenever the path is long, without consulting the
-    machine-wide LongPathsEnabled registry setting. That setting only takes effect
-    for processes whose application manifest declares longPathAware, and this code
-    also runs inside DCC-hosted interpreters whose host executables do not declare
-    it. The prefix is a no-op for a process that is already long path aware.
+    The prefix is applied whenever the path is long, without consulting
+    _is_windows_long_path_registry_enabled.
+
+    That helper calls RtlAreLongPathsEnabled, which despite its name reports the
+    *process's* effective state -- the registry value AND the calling executable's
+    longPathAware manifest declaration -- not the registry value alone. So the old
+    condition suppressed the prefix exactly when the process did not need it. Removing
+    it is hardening rather than a bug fix: it makes the behaviour deterministic instead
+    of dependent on a misleadingly named API, and the prefix is a no-op for a process
+    that is already long path aware.
 
     :param original_path: Original unmodified path/string representing an absolute path.
     :return: A Path object representing the long path compatible path.
@@ -159,13 +165,22 @@ def _get_long_path_compatible_path(original_path: Union[str, Path]) -> Path:
         len(original_path_string) + TEMP_DOWNLOAD_ADDED_CHARS_LENGTH >= WINDOWS_MAX_PATH_LENGTH
         and not original_path_string.startswith(WINDOWS_UNC_PATH_STRING_PREFIX)
     ):
-        # A prefixed path is handed to the filesystem verbatim, with the normalization
-        # that would otherwise accept forward slashes turned off, so separators have to
-        # be converted first. PureWindowsPath is used rather than Path because Path
-        # follows the running platform, and this branch is exercised on POSIX hosts by
-        # tests that patch sys.platform.
-        pure = PureWindowsPath(original_path_string)
-        normalized = str(pure)
+        # A prefixed path is handed to the filesystem verbatim, with the Win32
+        # normalization turned off, so it has to be fully normalized first.
+        #
+        # ntpath.normpath rather than PureWindowsPath: both convert separators and drop
+        # "." components, but PureWindowsPath deliberately preserves ".." (it cannot
+        # safely resolve them without touching the filesystem, since a component may be
+        # a symlink). A surviving ".." is passed through literally once the prefix is
+        # applied and the filesystem rejects it. normpath collapses it lexically, keeps
+        # the leading pair of backslashes on \\server\share, and is idempotent on paths
+        # that already carry the prefix.
+        #
+        # ntpath rather than os.path because this branch parses Windows paths on any
+        # host: it is exercised on POSIX by tests that patch sys.platform, where
+        # os.path is posixpath.
+        normalized = ntpath.normpath(original_path_string)
+        pure = PureWindowsPath(normalized)
 
         if pure.drive.startswith(WINDOWS_PATH_SEPARATOR * 2):
             # A network path (\\server\share) takes the \\?\UNC\ form, which replaces the
