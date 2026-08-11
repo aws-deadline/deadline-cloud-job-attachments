@@ -509,7 +509,13 @@ class S3AssetUploader:
         """
         Snapshots all of the files listed in the given manifest to snapshot_dir.
         """
-        os.makedirs(snapshot_dir / S3_DATA_FOLDER_NAME, exist_ok=True)
+        # Prefixed like the sibling makedirs at :323. This creates the parent of every path
+        # _snapshot_object_to_cas copies into below, and that copy target is already prefixed
+        # (:716) -- so without this the directory creation is the one unprefixed step left in
+        # the snapshot path, and it raises before the prefixed copy is ever reached.
+        os.makedirs(
+            _get_long_path_compatible_path(snapshot_dir / S3_DATA_FOLDER_NAME), exist_ok=True
+        )
 
         # Process all the paths with parallel copy calls.
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_upload_workers) as executor:

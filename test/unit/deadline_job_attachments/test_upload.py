@@ -5,6 +5,7 @@ Tests related to the uploading of assets.
 """
 
 import os
+import shutil
 import sys
 from copy import deepcopy
 from datetime import datetime
@@ -28,6 +29,10 @@ from deadline.job_attachments.asset_manifests import (
     HashAlgorithm,
     ManifestVersion,
 )
+from deadline.job_attachments._utils import (
+    WINDOWS_MAX_PATH_LENGTH,
+    _get_long_path_compatible_path,
+)
 from deadline.job_attachments.caches import HashCacheEntry, S3CheckCacheEntry
 from deadline.job_attachments.exceptions import (
     AssetSyncError,
@@ -38,6 +43,7 @@ from deadline.job_attachments.exceptions import (
 )
 from deadline.job_attachments.models import (
     AssetRootGroup,
+    S3_DATA_FOLDER_NAME,
     Attachments,
     FileSystemLocation,
     FileSystemLocationType,
@@ -47,7 +53,7 @@ from deadline.job_attachments.models import (
     PathFormat,
     StorageProfile,
 )
-from deadline.job_attachments.asset_manifests.v2023_03_03 import AssetManifest
+from deadline.job_attachments.asset_manifests.v2023_03_03 import AssetManifest, ManifestPath
 
 from deadline.job_attachments.progress_tracker import (
     ProgressStatus,
@@ -3259,3 +3265,55 @@ class TestUploadLongPath:
                 assert actual_path_arg == str(long_path), (
                     f"hash_file should receive long-path-compatible path, got: {actual_path_arg}"
                 )
+
+    def test_snapshot_input_files_creates_long_data_dir(self, tmp_path: Path):
+        r"""
+        The Data directory is created even when the snapshot dir is over MAX_PATH.
+
+        This makedirs is the parent of every path _snapshot_object_to_cas copies into, and
+        that copy target is already prefixed -- so while it was the one unprefixed step left
+        in the snapshot path, the directory creation raised before the prefixed copy could
+        run. A ~250-char --save-debug-snapshot destination is enough for snapshot_dir/Data to
+        cross the threshold.
+
+        Runs on all platforms: the prefix branch is Windows-only, so elsewhere this just pins
+        that a long snapshot dir keeps working.
+        """
+        source_root = tmp_path / "source"
+        source_root.mkdir()
+        (source_root / "file.txt").write_bytes(b"contents")
+
+        snapshot_dir = tmp_path / ("s" * 120) / ("n" * 120)
+        assert len(str(snapshot_dir / S3_DATA_FOLDER_NAME)) > WINDOWS_MAX_PATH_LENGTH, (
+            "the snapshot dir must be long enough to reach the prefix branch, got "
+            f"{len(str(snapshot_dir / S3_DATA_FOLDER_NAME))}"
+        )
+
+        uploader = S3AssetUploader(s3_max_pool_connections=50, small_file_threshold_multiplier=20)
+        manifest = AssetManifest(
+            hash_alg=HashAlgorithm.XXH128,
+            paths=[
+                ManifestPath(
+                    path="file.txt", hash="0" * 32, size=len(b"contents"), mtime=1234567890
+                )
+            ],
+            total_size=len(b"contents"),
+        )
+
+        try:
+            uploader._snapshot_input_files(
+                snapshot_dir=snapshot_dir, manifest=manifest, source_root=source_root
+            )
+
+            # The directory creation is the step under test, and the copy that follows it
+            # proves the prefixed target really was reachable underneath.
+            data_dir = _get_long_path_compatible_path(snapshot_dir / S3_DATA_FOLDER_NAME)
+            assert data_dir.is_dir()
+            assert _get_long_path_compatible_path(
+                snapshot_dir / S3_DATA_FOLDER_NAME / f"{'0' * 32}.xxh128"
+            ).is_file()
+        finally:
+            # The unprefixed rmtree tmp_path tears down with cannot reach past MAX_PATH.
+            shutil.rmtree(
+                _get_long_path_compatible_path(tmp_path / ("s" * 120)), ignore_errors=True
+            )
