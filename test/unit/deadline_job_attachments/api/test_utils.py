@@ -83,18 +83,22 @@ class TestReadManifests:
             json.dump(contents, f)
         return os.path.join("d" * 120, "e" * 120, name)
 
-    def _remove_long_tree(self, temp_dir) -> None:
+    def _remove_long_tree(self, temp_dir, original_cwd) -> None:
         """
-        Drops the long tree before the temp_dir fixture unwinds.
+        Restores the cwd and drops the long tree, before the temp_dir fixture unwinds.
 
-        TemporaryDirectory tears down with an unprefixed shutil.rmtree, which cannot remove
-        a >MAX_PATH tree on Windows and would error at teardown.
+        Both are needed for the fixture's teardown to succeed on Windows. Its unprefixed
+        shutil.rmtree cannot remove a >MAX_PATH tree, and it cannot remove the temp root at
+        all while that root is still a process's working directory (WinError 32). The cwd is
+        restored here rather than by monkeypatch.chdir because a fixture finalizer may run
+        after the one that removes the directory, whereas this runs inside the test.
         """
+        os.chdir(original_cwd)
         shutil.rmtree(
             _get_long_path_compatible_path(os.path.join(temp_dir, "d" * 120)), ignore_errors=True
         )
 
-    def test_long_relative_path_is_read(self, temp_dir, test_manifest_one, monkeypatch):
+    def test_long_relative_path_is_read(self, temp_dir, test_manifest_one):
         r"""
         A relative path long enough to trip the prefix branch is still read.
 
@@ -109,9 +113,10 @@ class TestReadManifests:
         pins that a long relative path keeps working.
         """
         manifest_file_name = "manifest_rel"
+        original_cwd = os.getcwd()
         try:
             relative = self._write_long_manifest(temp_dir, test_manifest_one, manifest_file_name)
-            monkeypatch.chdir(temp_dir)
+            os.chdir(temp_dir)
             assert len(relative) + TEMP_DOWNLOAD_ADDED_CHARS_LENGTH >= WINDOWS_MAX_PATH_LENGTH, (
                 "the relative path must be long enough to reach the prefix branch, got "
                 f"{len(relative)}"
@@ -121,11 +126,9 @@ class TestReadManifests:
 
             assert result.get(manifest_file_name) is not None
         finally:
-            self._remove_long_tree(temp_dir)
+            self._remove_long_tree(temp_dir, original_cwd)
 
-    def test_long_dotdot_path_does_not_raise_bare_valueerror(
-        self, temp_dir, test_manifest_one, monkeypatch
-    ):
+    def test_long_dotdot_path_does_not_raise_bare_valueerror(self, temp_dir, test_manifest_one):
         """
         A long path containing '..' does not escape as a bare ValueError.
 
@@ -136,9 +139,10 @@ class TestReadManifests:
         rather than reaching the guard.
         """
         manifest_file_name = "manifest_dotdot"
+        original_cwd = os.getcwd()
         try:
             self._write_long_manifest(temp_dir, test_manifest_one, manifest_file_name)
-            monkeypatch.chdir(temp_dir)
+            os.chdir(temp_dir)
             # Detour through the parent and back, keeping the string over the limit.
             with_dotdot = os.path.join("d" * 120, "e" * 120, "..", "e" * 120, manifest_file_name)
             assert len(with_dotdot) + TEMP_DOWNLOAD_ADDED_CHARS_LENGTH >= WINDOWS_MAX_PATH_LENGTH
@@ -149,4 +153,4 @@ class TestReadManifests:
 
             assert result.get(manifest_file_name) is not None
         finally:
-            self._remove_long_tree(temp_dir)
+            self._remove_long_tree(temp_dir, original_cwd)
