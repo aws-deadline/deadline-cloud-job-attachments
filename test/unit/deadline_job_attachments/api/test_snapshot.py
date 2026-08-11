@@ -84,6 +84,58 @@ class TestSnapshotAPI:
                 WINDOWS_UNC_PATH_STRING_PREFIX + str(first_long_component), ignore_errors=True
             )
 
+    def test_snapshot_to_long_relative_destination(self, temp_dir):
+        r"""
+        A relative destination long enough to trip the prefix branch is still written.
+
+        `destination` reaches _write_manifest straight from the CLI's --destination (or from
+        `root` when that is omitted), unresolved. `\\?\` requires a fully qualified path, so
+        without an abspath first the write target becomes `\\?\some\relative\dir\...` -- which
+        Windows rejects, and os.path.dirname of which is handed to makedirs, so the snapshot
+        fails before anything is written. The returned path stays relative, as given.
+
+        Runs on all platforms: the prefix branch is Windows-only, so elsewhere this just pins
+        that a long relative destination keeps working.
+        """
+        original_cwd = os.getcwd()
+        try:
+            root_dir = os.path.join(temp_dir, "root")
+            os.makedirs(root_dir)
+            Path(os.path.join(root_dir, "file.txt")).touch()
+
+            relative_destination = os.path.join("d" * 120, "e" * 120)
+            os.makedirs(
+                _get_long_path_compatible_path(os.path.join(temp_dir, relative_destination)),
+                exist_ok=True,
+            )
+            os.chdir(temp_dir)
+
+            manifest: Optional[ManifestSnapshot] = _manifest_snapshot(
+                root=root_dir, destination=relative_destination, name="test"
+            )
+
+            assert manifest is not None
+            # Returned as given -- relative, unprefixed -- since callers surface it.
+            assert not manifest.manifest.startswith(WINDOWS_UNC_PATH_STRING_PREFIX)
+            assert not os.path.isabs(manifest.manifest)
+            assert len(manifest.manifest) > WINDOWS_MAX_PATH_LENGTH, (
+                "the relative path must be long enough to reach the prefix branch, got "
+                f"{len(manifest.manifest)}"
+            )
+            # And it really was written, which the malformed prefixed form could not do.
+            assert os.path.isfile(
+                _get_long_path_compatible_path(os.path.abspath(manifest.manifest))
+            )
+        finally:
+            # The cwd is restored before the tree is removed: Windows cannot delete a
+            # directory that is a process's working directory (WinError 32), and the
+            # fixture's own unprefixed rmtree cannot reach past MAX_PATH.
+            os.chdir(original_cwd)
+            shutil.rmtree(
+                _get_long_path_compatible_path(os.path.join(temp_dir, "d" * 120)),
+                ignore_errors=True,
+            )
+
     def test_snapshot_empty_folder(self, temp_dir):
         """
         Snapshot with an invalid folder. Should find nothing and no manifest.

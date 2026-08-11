@@ -1684,7 +1684,13 @@ class S3AssetManager:
 
             if asset_root_manifest.asset_manifest:
                 partial_manifest_key, asset_manifest_hash = self.asset_uploader._snapshot_assets(
-                    snapshot_dir=Path(snapshot_dir),
+                    # Made absolute here, at the one entry point, rather than at each of the
+                    # three _get_long_path_compatible_path calls it feeds (:323, :324, :716).
+                    # snapshot_dir is a caller-supplied string -- deadline-cloud passes the
+                    # CLI's --save-debug-snapshot through -- and \\?\ requires a fully
+                    # qualified path, so a relative one long enough to reach the prefix
+                    # branch would be written to a string the filesystem rejects.
+                    snapshot_dir=Path(os.path.abspath(snapshot_dir)),
                     manifest=asset_root_manifest.asset_manifest,
                     partial_manifest_prefix=self.job_attachment_settings.partial_manifest_prefix(  # type: ignore[union-attr]
                         self.farm_id, self.queue_id

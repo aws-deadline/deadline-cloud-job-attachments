@@ -228,7 +228,13 @@ def _write_manifest(
 
     # The \\?\ prefix is only for our own file operations. Callers surface this path to
     # users and to other tools, many of which cannot parse the prefixed form.
-    write_path = str(_get_long_path_compatible_path(local_manifest_path))
+    #
+    # abspath first for the same reason as the read sides (api/_utils.py:_read_manifests,
+    # _manifest_diff): `destination` comes from the CLI's --destination unresolved, or from
+    # `root` when that is omitted. \\?\ requires a fully qualified path, so a relative
+    # destination whose join is long enough to reach the prefix branch would be written to a
+    # string the filesystem rejects. The return below stays plain and relative-as-given.
+    write_path = str(_get_long_path_compatible_path(os.path.abspath(local_manifest_path)))
     os.makedirs(os.path.dirname(write_path), exist_ok=True)
     with open(write_path, "w") as file:
         file.write(manifest.encode())
