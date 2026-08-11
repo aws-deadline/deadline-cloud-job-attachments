@@ -30,8 +30,17 @@ def _read_manifests(manifest_paths: List[str]) -> Dict[str, BaseAssetManifest]:
     # here. Without it, a manifest written to a >MAX_PATH destination stats as missing and
     # is reported as "not valid". The dict keys stay derived from the plain path so the
     # prefix never reaches a return value.
+    #
+    # abspath first because, unlike every other caller of the helper, these paths come
+    # straight from the CLI and are not resolved. \\?\ requires a fully qualified path and
+    # disables the normalization that would otherwise resolve a relative one, so a long
+    # relative path would be prefixed into something the filesystem rejects. abspath also
+    # collapses ".." against the real cwd, so the helper's ".." guard -- which exists to
+    # catch callers that skipped resolution -- does not surface a bare ValueError here in
+    # place of the NonValidInputError this function is documented to raise.
     read_paths = {
-        manifest: str(_get_long_path_compatible_path(manifest)) for manifest in manifest_paths
+        manifest: str(_get_long_path_compatible_path(os.path.abspath(manifest)))
+        for manifest in manifest_paths
     }
 
     if nonvalid_files := [

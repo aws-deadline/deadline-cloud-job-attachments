@@ -94,6 +94,7 @@ from deadline.job_attachments.os_file_permission import (
     PosixFileSystemPermissionSettings,
     WindowsFileSystemPermissionSettings,
     WindowsPermissionEnum,
+    _set_fs_permission_for_windows,
 )
 from deadline.job_attachments.api import human_readable_file_size
 
@@ -3288,6 +3289,73 @@ def test_download_summary_paths_do_not_carry_the_unc_prefix(tmp_path: Path):
         assert len(reported) > WINDOWS_MAX_PATH_LENGTH, (
             "The destination must be long enough that the prefix was applied, otherwise "
             "this test would pass without exercising the strip."
+        )
+    finally:
+        shutil.rmtree(
+            WINDOWS_UNC_PATH_STRING_PREFIX + str(first_long_component), ignore_errors=True
+        )
+
+
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="_set_fs_permission_for_windows raises EnvironmentError off Windows.",
+)
+def test_set_fs_permission_prefixes_both_files_and_directories(tmp_path: Path):
+    r"""
+    Every path handed to the win32 security APIs is prefixed, directories included.
+
+    `_set_fs_permission_for_windows` works in two passes. Pass 1 uses the file paths it
+    was given; pass 2 rebuilds each parent directory from the *unprefixed* `local_root`
+    (os_file_permission.py:136). Under a >MAX_PATH root the deeper directories exceed the
+    limit, so before this fix pass 2 failed on exactly the trees pass 1 had just handled
+    -- `GetFileSecurity` raises `win32security.error`, surfacing as `AssetSyncError`.
+    `sync_inputs` therefore still failed on a long download root, one step later.
+
+    `_change_permission_for_windows` is patched because the real call needs a resolvable
+    account name; the assertion is about the strings it receives, which is what the Win32
+    normalization acts on.
+    """
+    long_root = tmp_path
+    while len(str(long_root)) < WINDOWS_MAX_PATH_LENGTH:
+        long_root = long_root / ("d" * 10)
+    first_long_component = tmp_path / long_root.relative_to(tmp_path).parts[0]
+
+    long_file = long_root / "nested" / "scene.ma"
+    os.makedirs(WINDOWS_UNC_PATH_STRING_PREFIX + str(long_file.parent), exist_ok=True)
+    with open(WINDOWS_UNC_PATH_STRING_PREFIX + str(long_file), "wb") as f:
+        f.write(b"data")
+
+    settings = WindowsFileSystemPermissionSettings(
+        os_user="test-user",
+        dir_mode=WindowsPermissionEnum.FULL_CONTROL,
+        file_mode=WindowsPermissionEnum.FULL_CONTROL,
+    )
+
+    try:
+        with patch(
+            f"{deadline.__package__}.job_attachments.os_file_permission._change_permission_for_windows"
+        ) as mock_change_permission:
+            _set_fs_permission_for_windows(
+                file_paths=[str(_get_long_path_compatible_path(long_file))],
+                local_root=str(long_root),
+                fs_permission_settings=settings,
+            )
+
+        received = [call_args.args[0] for call_args in mock_change_permission.call_args_list]
+        assert received, "no permission changes were attempted"
+
+        # The directory pass is the point of this test, so fail loudly if it did not run.
+        prefixed_file = str(_get_long_path_compatible_path(long_file))
+        assert [path for path in received if path != prefixed_file], (
+            f"pass 2 never ran, so this test proves nothing about directories: {received}"
+        )
+
+        unprefixed = [
+            path for path in received if not path.startswith(WINDOWS_UNC_PATH_STRING_PREFIX)
+        ]
+        assert not unprefixed, (
+            "these paths reach win32security without the prefix and fail past MAX_PATH: "
+            f"{unprefixed}"
         )
     finally:
         shutil.rmtree(

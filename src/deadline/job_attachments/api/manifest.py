@@ -270,10 +270,11 @@ def _manifest_diff(
     # Placeholder Asset Manager
     asset_manager = S3AssetManager()
 
-    # parse the given manifest to compare against. Re-prefixed for the same reason as in
-    # _read_manifests: the caller was handed the plain path by _write_manifest.
+    # parse the given manifest to compare against. Re-prefixed, and made absolute first,
+    # for the same reasons as in _read_manifests: the caller was handed the plain path by
+    # _write_manifest, and this path comes from the CLI unresolved.
     local_manifest_object: BaseAssetManifest
-    with open(_get_long_path_compatible_path(manifest)) as input_file:
+    with open(_get_long_path_compatible_path(os.path.abspath(manifest))) as input_file:
         manifest_data_str = input_file.read()
         local_manifest_object = decode_manifest(manifest_data_str)
 
@@ -363,7 +364,11 @@ def _manifest_upload(
         small_file_threshold_multiplier=20,
     )
 
-    manifest_file = str(_get_long_path_compatible_path(manifest_file))
+    # abspath for the same reason as the read sites: this is an unresolved CLI path, and a
+    # long relative one cannot carry the \\?\ prefix. The prefixing itself predates this PR;
+    # only the abspath is new. Applied after the S3 key is derived above, so the object key
+    # and metadata keep using the path as the user gave it.
+    manifest_file = str(_get_long_path_compatible_path(os.path.abspath(manifest_file)))
 
     with open(manifest_file) as manifest:
         upload.upload_bytes_to_s3(
