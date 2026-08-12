@@ -31,10 +31,13 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+
+# Imported as a submodule rather than `from ctypes import wintypes` so ctypes is not
+# brought in two different ways, which CodeQL flags.
+import ctypes.wintypes as wintypes
 import re
 import shutil
 import sys
-from ctypes import wintypes
 from pathlib import Path
 
 # Resource type for an application manifest, and the id python.exe embeds it under.
