@@ -62,6 +62,11 @@ from deadline.job_attachments.download import (
     WINDOWS_MAX_PATH_LENGTH,
     TEMP_DOWNLOAD_ADDED_CHARS_LENGTH,
 )
+from deadline.job_attachments import download
+from deadline.job_attachments._utils import (
+    WINDOWS_UNC_PATH_STRING_PREFIX,
+    _get_long_path_compatible_path,
+)
 from deadline.job_attachments.exceptions import (
     AssetSyncError,
     JobAttachmentsError,
@@ -81,6 +86,7 @@ from deadline.job_attachments.progress_tracker import (
     DownloadSummaryStatistics,
     ProgressReportMetadata,
     ProgressStatus,
+    ProgressTracker,
 )
 from deadline.job_attachments.asset_manifests.decode import decode_manifest
 
@@ -88,6 +94,7 @@ from deadline.job_attachments.os_file_permission import (
     PosixFileSystemPermissionSettings,
     WindowsFileSystemPermissionSettings,
     WindowsPermissionEnum,
+    _set_fs_permission_for_windows,
 )
 from deadline.job_attachments.api import human_readable_file_size
 
@@ -1956,6 +1963,16 @@ class TestFullDownload:
         reason="This test is for Windows path only.",
     )
     def test_windows_long_path_UNC_notation_WindowsOS(self):
+        """
+        download_file applies the \\\\?\\ prefix to a long destination it is handed plain.
+
+        Not parametrized over the registry setting, and no patch of
+        _is_windows_long_path_registry_enabled: that helper has no production callers, so
+        patching it could not change this code path either way. Registry-result
+        independence is covered directly in test_utils.py. The fixture supplies an
+        unprefixed destination so the conversion actually happens here rather than being
+        pre-applied by the caller.
+        """
         (
             file_path,
             local_path,
@@ -1965,15 +1982,17 @@ class TestFullDownload:
             mock_transfer_manager,
         ) = self.setup_mocks_and_file_path()
 
+        assert not local_path.startswith(WINDOWS_UNC_PATH_STRING_PREFIX), (
+            "The destination must start out plain, otherwise this test asserts nothing "
+            "about the prefix being applied."
+        )
+
         with patch(
             f"{deadline.__package__}.job_attachments.download.get_s3_client",
             return_value=mock_s3_client,
         ), patch(
             f"{deadline.__package__}.job_attachments.download.get_s3_transfer_manager",
             return_value=mock_transfer_manager,
-        ), patch(
-            f"{deadline.__package__}.job_attachments._utils._is_windows_long_path_registry_enabled",
-            return_value=False,
         ), patch(f"{deadline.__package__}.job_attachments.download.Path.mkdir"):
             with pytest.raises(AssetSyncError) as exc:
                 download_file(
@@ -1990,6 +2009,13 @@ class TestFullDownload:
         assert str(exc.value) == expected_message
         mock_lock.assert_not_called()
         mock_collision_dict.assert_not_called()
+
+        # The plain destination came back prefixed exactly once, and the prefix was
+        # applied to the path the transfer manager actually writes to.
+        fileobj = mock_transfer_manager.download.call_args.kwargs["fileobj"]
+        assert fileobj.startswith(WINDOWS_UNC_PATH_STRING_PREFIX)
+        assert not fileobj.startswith(WINDOWS_UNC_PATH_STRING_PREFIX * 2)
+        assert fileobj.endswith("attachment.txt")
 
     def setup_mocks_and_file_path(self):
         mock_s3_client = MagicMock()
@@ -2005,7 +2031,16 @@ class TestFullDownload:
             size=1,
             mtime=1234000000,
         )
-        local_path = "\\\\?\\C:\\path\\to\\a\\very\\long\\file\\path\\that\\exceeds\\the\\windows\\max\\path\\length\\for\\testing\\max\\file\\path\\error\\handling\\when\\download\\or\\syncing\\assest\\using\\job\\attachment"
+        # Deliberately unprefixed: download_file is responsible for applying the prefix,
+        # so a pre-prefixed destination would bypass the conversion under test.
+        local_path = "C:\\path\\to\\a\\very\\long\\file\\path\\that\\exceeds\\the\\windows\\max\\path\\length\\for\\testing\\max\\file\\path\\error\\handling\\when\\download\\or\\syncing\\assest\\using\\job\\attachment"
+        # download_file prefixes local_download_dir joined with the manifest's relative
+        # path, not the directory alone, so the length check has to measure the join --
+        # local_path on its own is only 167 chars and would not require the prefix.
+        destination = str(Path(local_path).joinpath(file_path.path))
+        assert len(destination) + TEMP_DOWNLOAD_ADDED_CHARS_LENGTH >= WINDOWS_MAX_PATH_LENGTH, (
+            f"The destination must be long enough to require the prefix, got {len(destination)}"
+        )
         return (
             file_path,
             local_path,
@@ -2014,47 +2049,6 @@ class TestFullDownload:
             mock_s3_client,
             mock_transfer_manager,
         )
-
-    @pytest.mark.skipif(
-        sys.platform != "win32",
-        reason="This test is for Windows path only.",
-    )
-    def test_windows_long_path_UNC_notation_and_registry_WindowsOS(self):
-        (
-            file_path,
-            local_path,
-            mock_collision_dict,
-            mock_lock,
-            mock_s3_client,
-            mock_transfer_manager,
-        ) = self.setup_mocks_and_file_path()
-
-        with patch(
-            f"{deadline.__package__}.job_attachments.download.get_s3_client",
-            return_value=mock_s3_client,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.download.get_s3_transfer_manager",
-            return_value=mock_transfer_manager,
-        ), patch(
-            f"{deadline.__package__}.job_attachments._utils._is_windows_long_path_registry_enabled",
-            return_value=True,
-        ), patch(f"{deadline.__package__}.job_attachments.download.Path.mkdir"):
-            with pytest.raises(AssetSyncError) as exc:
-                download_file(
-                    file_path,
-                    HashAlgorithm.XXH128,
-                    local_path,
-                    mock_lock,
-                    mock_collision_dict,
-                    "test-bucket",
-                    "rootPrefix/Data",
-                    mock_s3_client,
-                )
-
-        expected_message = "Test exception"
-        assert str(exc.value) == expected_message
-        mock_lock.assert_not_called()
-        mock_collision_dict.assert_not_called()
 
     def _test_create_copy_long_path_scenario(
         self, base_dir, long_base_name, expect_unc_prefix=False
@@ -3212,3 +3206,158 @@ def test_download_file_allows_path_within_download_dir(tmp_path):
     fileobj_path = mock_transfer_manager.download.call_args.kwargs["fileobj"]
     resolved_root = str(Path(download_dir).resolve())
     assert os.path.commonpath([resolved_root, os.path.normpath(fileobj_path)]) == resolved_root
+
+
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="The prefix is only applied on Windows, so there is nothing to leak elsewhere.",
+)
+def test_download_summary_paths_do_not_carry_the_unc_prefix(tmp_path: Path):
+    r"""
+    The prefix survives internally but is stripped where paths are surfaced.
+
+    `download_file` returns the path it actually wrote to, which for a long destination
+    carries `\\?\`. Two consumers want different forms of that value:
+
+    - `_set_fs_group` passes each string to `win32security.GetFileSecurity`/
+      `SetFileSecurity`, which go through the Win32 normalization the prefix exists to
+      bypass -- so an unprefixed >MAX_PATH path fails there.
+    - the summary statistics land in JSON output that many tools cannot parse in the
+      `\\?\` form.
+
+    So `_download_files_parallel` keeps the prefix and `get_download_summary_statistics`
+    strips it. Stripping earlier would break the win32 calls; stripping later would leak.
+    """
+    # A destination long enough that download_file must prefix it.
+    long_dir = tmp_path
+    while len(str(long_dir)) < WINDOWS_MAX_PATH_LENGTH:
+        long_dir = long_dir / ("d" * 10)
+    first_long_component = tmp_path / long_dir.relative_to(tmp_path).parts[0]
+    os.makedirs(WINDOWS_UNC_PATH_STRING_PREFIX + str(long_dir), exist_ok=True)
+
+    file_path = ManifestPathv2023_03_03(path="scene.ma", hash="filehash", size=4, mtime=1234000000)
+
+    def fake_download(bucket, key, fileobj, subscribers):
+        # Stand in for S3 by creating the file the real transfer manager would write.
+        with open(_get_long_path_compatible_path(fileobj), "wb") as f:
+            f.write(b"data")
+        future = MagicMock()
+        future.result.return_value = None
+        return future
+
+    mock_transfer_manager = MagicMock()
+    mock_transfer_manager.download.side_effect = fake_download
+
+    # pytest's tmp_path teardown cannot remove a >MAX_PATH tree, so drop it here through
+    # the prefix rather than leaving an error at teardown.
+    try:
+        with patch(
+            f"{deadline.__package__}.job_attachments.download.get_s3_client",
+            return_value=MagicMock(),
+        ), patch(
+            f"{deadline.__package__}.job_attachments.download.get_s3_transfer_manager",
+            return_value=mock_transfer_manager,
+        ):
+            downloaded = download._download_files_parallel(
+                files=[file_path],
+                hash_algorithm=HashAlgorithm.XXH128,
+                num_download_workers=1,
+                local_download_dir=str(long_dir),
+                s3_bucket="test-bucket",
+                cas_prefix="rootPrefix/Data",
+                s3_client=MagicMock(),
+            )
+
+        # The internal value keeps the prefix, so consumers that hand it to win32 APIs
+        # still work.
+        assert len(downloaded) == 1
+        written = downloaded[0]
+        assert os.path.isfile(_get_long_path_compatible_path(written))
+        assert written.startswith(WINDOWS_UNC_PATH_STRING_PREFIX), (
+            "The internal path must keep the prefix -- _set_fs_group passes it to "
+            f"win32security, which cannot take a bare long path. Got: {written[:60]}"
+        )
+
+        # The surfaced value does not.
+        summary = ProgressTracker(
+            status=ProgressStatus.DOWNLOAD_IN_PROGRESS, total_files=1, total_bytes=4
+        ).get_download_summary_statistics({str(long_dir): downloaded})
+        reported = summary.downloaded_files[0]
+        assert not reported.startswith(WINDOWS_UNC_PATH_STRING_PREFIX), (
+            f"The summary path leaked the internal prefix: {reported[:60]}"
+        )
+        assert len(reported) > WINDOWS_MAX_PATH_LENGTH, (
+            "The destination must be long enough that the prefix was applied, otherwise "
+            "this test would pass without exercising the strip."
+        )
+    finally:
+        shutil.rmtree(
+            WINDOWS_UNC_PATH_STRING_PREFIX + str(first_long_component), ignore_errors=True
+        )
+
+
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="_set_fs_permission_for_windows raises EnvironmentError off Windows.",
+)
+def test_set_fs_permission_prefixes_both_files_and_directories(tmp_path: Path):
+    r"""
+    Every path handed to the win32 security APIs is prefixed, directories included.
+
+    `_set_fs_permission_for_windows` works in two passes. Pass 1 uses the file paths it
+    was given; pass 2 rebuilds each parent directory from the *unprefixed* `local_root`
+    (os_file_permission.py:136). Under a >MAX_PATH root the deeper directories exceed the
+    limit, so before this fix pass 2 failed on exactly the trees pass 1 had just handled
+    -- `GetFileSecurity` raises `win32security.error`, surfacing as `AssetSyncError`.
+    `sync_inputs` therefore still failed on a long download root, one step later.
+
+    `_change_permission_for_windows` is patched because the real call needs a resolvable
+    account name; the assertion is about the strings it receives, which is what the Win32
+    normalization acts on.
+    """
+    long_root = tmp_path
+    while len(str(long_root)) < WINDOWS_MAX_PATH_LENGTH:
+        long_root = long_root / ("d" * 10)
+    first_long_component = tmp_path / long_root.relative_to(tmp_path).parts[0]
+
+    long_file = long_root / "nested" / "scene.ma"
+    os.makedirs(WINDOWS_UNC_PATH_STRING_PREFIX + str(long_file.parent), exist_ok=True)
+    with open(WINDOWS_UNC_PATH_STRING_PREFIX + str(long_file), "wb") as f:
+        f.write(b"data")
+
+    settings = WindowsFileSystemPermissionSettings(
+        os_user="test-user",
+        dir_mode=WindowsPermissionEnum.FULL_CONTROL,
+        file_mode=WindowsPermissionEnum.FULL_CONTROL,
+    )
+
+    try:
+        with patch(
+            f"{deadline.__package__}.job_attachments.os_file_permission._change_permission_for_windows"
+        ) as mock_change_permission:
+            _set_fs_permission_for_windows(
+                file_paths=[str(_get_long_path_compatible_path(long_file))],
+                local_root=str(long_root),
+                fs_permission_settings=settings,
+            )
+
+        received = [call_args.args[0] for call_args in mock_change_permission.call_args_list]
+        assert received, "no permission changes were attempted"
+
+        # The directory pass is the point of this test, so fail loudly if it did not run.
+        prefixed_file = str(_get_long_path_compatible_path(long_file))
+        assert [path for path in received if path != prefixed_file], (
+            f"pass 2 never ran, so this test proves nothing about directories: {received}"
+        )
+
+        unprefixed = [
+            path for path in received if not path.startswith(WINDOWS_UNC_PATH_STRING_PREFIX)
+        ]
+        assert not unprefixed, (
+            "these paths reach win32security without the prefix and fail past MAX_PATH: "
+            f"{unprefixed}"
+        )
+    finally:
+        shutil.rmtree(
+            WINDOWS_UNC_PATH_STRING_PREFIX + str(first_long_component), ignore_errors=True
+        )

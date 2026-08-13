@@ -224,13 +224,19 @@ def _write_manifest(
     manifest_name = manifest_name[1:] if manifest_name[0] == "_" else manifest_name
     manifest_name = f"{manifest_name}-{root_hash}-{timestamp}.manifest"
 
-    local_manifest_path = str(
-        _get_long_path_compatible_path(
-            os.path.join(destination, manifest_name),
-        )
-    )
-    os.makedirs(os.path.dirname(local_manifest_path), exist_ok=True)
-    with open(local_manifest_path, "w") as file:
+    local_manifest_path = os.path.join(destination, manifest_name)
+
+    # The \\?\ prefix is only for our own file operations. Callers surface this path to
+    # users and to other tools, many of which cannot parse the prefixed form.
+    #
+    # abspath first for the same reason as the read sides (api/_utils.py:_read_manifests,
+    # _manifest_diff): `destination` comes from the CLI's --destination unresolved, or from
+    # `root` when that is omitted. \\?\ requires a fully qualified path, so a relative
+    # destination whose join is long enough to reach the prefix branch would be written to a
+    # string the filesystem rejects. The return below stays plain and relative-as-given.
+    write_path = str(_get_long_path_compatible_path(os.path.abspath(local_manifest_path)))
+    os.makedirs(os.path.dirname(write_path), exist_ok=True)
+    with open(write_path, "w") as file:
         file.write(manifest.encode())
 
     return local_manifest_path
@@ -270,9 +276,11 @@ def _manifest_diff(
     # Placeholder Asset Manager
     asset_manager = S3AssetManager()
 
-    # parse the given manifest to compare against.
+    # parse the given manifest to compare against. Re-prefixed, and made absolute first,
+    # for the same reasons as in _read_manifests: the caller was handed the plain path by
+    # _write_manifest, and this path comes from the CLI unresolved.
     local_manifest_object: BaseAssetManifest
-    with open(manifest) as input_file:
+    with open(_get_long_path_compatible_path(os.path.abspath(manifest))) as input_file:
         manifest_data_str = input_file.read()
         local_manifest_object = decode_manifest(manifest_data_str)
 
@@ -362,7 +370,11 @@ def _manifest_upload(
         small_file_threshold_multiplier=20,
     )
 
-    manifest_file = str(_get_long_path_compatible_path(manifest_file))
+    # abspath for the same reason as the read sites: this is an unresolved CLI path, and a
+    # long relative one cannot carry the \\?\ prefix. The prefixing itself predates this PR;
+    # only the abspath is new. Applied after the S3 key is derived above, so the object key
+    # and metadata keep using the path as the user gave it.
+    manifest_file = str(_get_long_path_compatible_path(os.path.abspath(manifest_file)))
 
     with open(manifest_file) as manifest:
         upload.upload_bytes_to_s3(

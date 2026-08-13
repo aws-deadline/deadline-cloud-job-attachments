@@ -9,7 +9,7 @@ from enum import Enum
 from typing import List, Set, Union
 
 from .exceptions import AssetSyncError, PathOutsideDirectoryError
-from ._utils import _is_relative_to, _normalize_windows_path
+from ._utils import _get_long_path_compatible_path, _is_relative_to, _normalize_windows_path
 
 
 @dataclass
@@ -123,7 +123,14 @@ def _set_fs_permission_for_windows(
                 f"The provided path '{file_path_str}' is not under the root directory: {local_root}"
             )
 
-        _change_permission_for_windows(file_path_str, os_user, file_mode)
+        # Prefixed rather than trusting the caller to have done it: the paths from
+        # _download_files_parallel arrive prefixed, but _set_fs_group is also called with
+        # plain paths (download.py:1215,1223,1228). The helper is idempotent, so this is a
+        # no-op for the already-prefixed ones. The unprefixed string is kept for the
+        # containment check and error message above, which are string comparisons.
+        _change_permission_for_windows(
+            str(_get_long_path_compatible_path(file_path_str)), os_user, file_mode
+        )
 
         # Add the parent directories of each file to the set of directories whose
         # permissions will be changed.
@@ -138,7 +145,14 @@ def _set_fs_permission_for_windows(
 
     # 2. Set permissions for the directories in the path starting from root.
     for dir_path in dir_paths_to_change_fs_group:
-        _change_permission_for_windows(str(dir_path), os_user, dir_mode)
+        # Prefixed for the same reason the file paths in pass 1 arrive prefixed:
+        # GetFileSecurity/SetFileSecurity go through the Win32 normalization that the
+        # \\?\ prefix exists to bypass. These paths are rebuilt from the *unprefixed*
+        # local_root, so without this the deeper directories under a >MAX_PATH download
+        # root exceed the limit and the win32 call fails as an AssetSyncError.
+        _change_permission_for_windows(
+            str(_get_long_path_compatible_path(dir_path)), os_user, dir_mode
+        )
 
 
 def _change_permission_for_posix(

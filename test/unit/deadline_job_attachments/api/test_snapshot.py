@@ -3,11 +3,18 @@
 import json
 import os
 from pathlib import Path
+import shutil
+import sys
 import tempfile
 from typing import List, Optional, Set
 from deadline.job_attachments.api.manifest import _manifest_snapshot
 from deadline.job_attachments.models import ManifestSnapshot
-from deadline.job_attachments._utils import _retry
+from deadline.job_attachments._utils import (
+    WINDOWS_MAX_PATH_LENGTH,
+    WINDOWS_UNC_PATH_STRING_PREFIX,
+    _get_long_path_compatible_path,
+    _retry,
+)
 import pytest
 
 
@@ -22,6 +29,112 @@ class TestSnapshotAPI:
         with open(manifest_path, "r") as manifest_file:
             manifest_payload = json.load(manifest_file)
             return {item["path"] for item in manifest_payload["paths"]}
+
+    @pytest.mark.skipif(
+        sys.platform != "win32",
+        reason="The destination must exceed MAX_PATH for the prefix to be applied at all.",
+    )
+    def test_snapshot_returns_path_without_unc_prefix(self, temp_dir):
+        """
+        Both halves of the plain-return/prefixed-write split, at a destination long
+        enough to actually trigger it.
+
+        A short destination never enters the prefix branch, so the assertions below would
+        hold against the pre-change implementation too and the test would prove nothing.
+        The destination here is over MAX_PATH, so the manifest can only be written through
+        the prefix -- while the returned path must stay plain, because it is surfaced to
+        users and to JSON output that many tools cannot parse in the \\\\?\\ form.
+        """
+        # Given a long destination directory, created through the prefix since creating it
+        # is itself a filesystem operation subject to MAX_PATH.
+        long_destination = Path(temp_dir)
+        while len(str(long_destination)) < WINDOWS_MAX_PATH_LENGTH:
+            long_destination = long_destination / ("d" * 10)
+        first_long_component = Path(temp_dir) / long_destination.relative_to(temp_dir).parts[0]
+        os.makedirs(WINDOWS_UNC_PATH_STRING_PREFIX + str(long_destination), exist_ok=True)
+        assert len(str(long_destination)) > WINDOWS_MAX_PATH_LENGTH
+
+        # The temp_dir fixture tears down with shutil.rmtree on the *unprefixed* path,
+        # which cannot reach past MAX_PATH -- it would error the test at teardown even
+        # after the assertions pass. So remove the long subtree here, through the prefix,
+        # and leave the fixture only short paths to clean up.
+        try:
+            # and a short source folder with a file in it
+            root_dir = os.path.join(temp_dir, "root")
+            os.makedirs(root_dir)
+            Path(os.path.join(root_dir, "file.txt")).touch()
+
+            # When
+            manifest: Optional[ManifestSnapshot] = _manifest_snapshot(
+                root=root_dir, destination=str(long_destination), name="test"
+            )
+
+            # Then
+            assert manifest is not None
+            # 1. The returned path is in the plain, user-facing form.
+            assert not manifest.manifest.startswith(WINDOWS_UNC_PATH_STRING_PREFIX)
+            assert len(manifest.manifest) > WINDOWS_MAX_PATH_LENGTH, (
+                "The returned path must still be a long one, otherwise the destination was "
+                "not long enough to exercise the prefix branch."
+            )
+            # 2. The manifest was nonetheless written, which is only possible through the prefix.
+            assert os.path.isfile(_get_long_path_compatible_path(manifest.manifest))
+        finally:
+            shutil.rmtree(
+                WINDOWS_UNC_PATH_STRING_PREFIX + str(first_long_component), ignore_errors=True
+            )
+
+    def test_snapshot_to_long_relative_destination(self, temp_dir):
+        r"""
+        A relative destination long enough to trip the prefix branch is still written.
+
+        `destination` reaches _write_manifest straight from the CLI's --destination (or from
+        `root` when that is omitted), unresolved. `\\?\` requires a fully qualified path, so
+        without an abspath first the write target becomes `\\?\some\relative\dir\...` -- which
+        Windows rejects, and os.path.dirname of which is handed to makedirs, so the snapshot
+        fails before anything is written. The returned path stays relative, as given.
+
+        Runs on all platforms: the prefix branch is Windows-only, so elsewhere this just pins
+        that a long relative destination keeps working.
+        """
+        original_cwd = os.getcwd()
+        try:
+            root_dir = os.path.join(temp_dir, "root")
+            os.makedirs(root_dir)
+            Path(os.path.join(root_dir, "file.txt")).touch()
+
+            relative_destination = os.path.join("d" * 120, "e" * 120)
+            os.makedirs(
+                _get_long_path_compatible_path(os.path.join(temp_dir, relative_destination)),
+                exist_ok=True,
+            )
+            os.chdir(temp_dir)
+
+            manifest: Optional[ManifestSnapshot] = _manifest_snapshot(
+                root=root_dir, destination=relative_destination, name="test"
+            )
+
+            assert manifest is not None
+            # Returned as given -- relative, unprefixed -- since callers surface it.
+            assert not manifest.manifest.startswith(WINDOWS_UNC_PATH_STRING_PREFIX)
+            assert not os.path.isabs(manifest.manifest)
+            assert len(manifest.manifest) > WINDOWS_MAX_PATH_LENGTH, (
+                "the relative path must be long enough to reach the prefix branch, got "
+                f"{len(manifest.manifest)}"
+            )
+            # And it really was written, which the malformed prefixed form could not do.
+            assert os.path.isfile(
+                _get_long_path_compatible_path(os.path.abspath(manifest.manifest))
+            )
+        finally:
+            # The cwd is restored before the tree is removed: Windows cannot delete a
+            # directory that is a process's working directory (WinError 32), and the
+            # fixture's own unprefixed rmtree cannot reach past MAX_PATH.
+            os.chdir(original_cwd)
+            shutil.rmtree(
+                _get_long_path_compatible_path(os.path.join(temp_dir, "d" * 120)),
+                ignore_errors=True,
+            )
 
     def test_snapshot_empty_folder(self, temp_dir):
         """

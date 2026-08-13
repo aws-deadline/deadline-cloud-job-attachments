@@ -74,6 +74,7 @@ from .progress_tracker import (
     ProgressTracker,
     SummaryStatistics,
 )
+from . import _utils
 from ._utils import (
     _get_long_path_compatible_path,
     _is_relative_to,
@@ -508,7 +509,13 @@ class S3AssetUploader:
         """
         Snapshots all of the files listed in the given manifest to snapshot_dir.
         """
-        os.makedirs(snapshot_dir / S3_DATA_FOLDER_NAME, exist_ok=True)
+        # Prefixed like the sibling makedirs at :323. This creates the parent of every path
+        # _snapshot_object_to_cas copies into below, and that copy target is already prefixed
+        # (:716) -- so without this the directory creation is the one unprefixed step left in
+        # the snapshot path, and it raises before the prefixed copy is ever reached.
+        os.makedirs(
+            _get_long_path_compatible_path(snapshot_dir / S3_DATA_FOLDER_NAME), exist_ok=True
+        )
 
         # Process all the paths with parallel copy calls.
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.num_upload_workers) as executor:
@@ -928,12 +935,15 @@ class S3AssetUploader:
         # GetFinalPathNameByHandleW() returns a path that starts with the \\?\
         # prefix, which pathlib.Path.resolve() removes.  The following is intended
         # to match the behavior of resolve().
-        prefix = r"\\?" "\\"
-        unc_prefix = r"\\?\UNC" "\\"
+        # Referenced through the module so they do not become re-exported aliases of
+        # deadline.job_attachments.upload, which the API snapshot check treats as new
+        # public API.
+        prefix = _utils.WINDOWS_UNC_PATH_STRING_PREFIX
+        unc_prefix = _utils.WINDOWS_UNC_DEVICE_PATH_STRING_PREFIX
 
         if final_path.startswith(prefix) and not path.startswith(prefix):
             if final_path.startswith(unc_prefix):
-                simplified_path = "\\\\" + final_path[len(unc_prefix) :]
+                simplified_path = _utils.WINDOWS_PATH_SEPARATOR * 2 + final_path[len(unc_prefix) :]
             else:
                 simplified_path = final_path[len(prefix) :]
 
@@ -1680,7 +1690,13 @@ class S3AssetManager:
 
             if asset_root_manifest.asset_manifest:
                 partial_manifest_key, asset_manifest_hash = self.asset_uploader._snapshot_assets(
-                    snapshot_dir=Path(snapshot_dir),
+                    # Made absolute here, at the one entry point, rather than at each of the
+                    # three _get_long_path_compatible_path calls it feeds (:323, :324, :716).
+                    # snapshot_dir is a caller-supplied string -- deadline-cloud passes the
+                    # CLI's --save-debug-snapshot through -- and \\?\ requires a fully
+                    # qualified path, so a relative one long enough to reach the prefix
+                    # branch would be written to a string the filesystem rejects.
+                    snapshot_dir=Path(os.path.abspath(snapshot_dir)),
                     manifest=asset_root_manifest.asset_manifest,
                     partial_manifest_prefix=self.job_attachment_settings.partial_manifest_prefix(  # type: ignore[union-attr]
                         self.farm_id, self.queue_id

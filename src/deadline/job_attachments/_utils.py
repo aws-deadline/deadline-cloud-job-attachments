@@ -3,7 +3,8 @@
 import datetime
 from functools import lru_cache, wraps
 from hashlib import shake_256
-from pathlib import Path
+import ntpath
+from pathlib import Path, PureWindowsPath
 import random
 import time
 from typing import Any, Callable, Optional, Tuple, Type, Union
@@ -32,10 +33,31 @@ Windows Max path length limit of 260.
 https://learn.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation
 """
 
+WINDOWS_PATH_SEPARATOR = "\\"
+"""
+The Windows path separator, spelled out because these helpers parse and build Windows
+paths on any host: the win32 branch below is exercised on POSIX in tests that patch
+sys.platform, where os.sep would be "/".
+"""
+
+_WINDOWS_PARENT_DIR_COMPONENT = ".."
+"""
+The parent-directory component. Spelled out rather than taken from os.pardir because
+these helpers parse Windows paths on any host.
+"""
+
 WINDOWS_UNC_PATH_STRING_PREFIX = "\\\\?\\"
 """
 When this is prepended to any path on Windows,
 it becomes a UNC path and is allowed to go over the 260 max path length limit.
+"""
+
+WINDOWS_UNC_DEVICE_PATH_STRING_PREFIX = "\\\\?\\UNC\\"
+"""
+The equivalent prefix for a network path (\\\\server\\share). The leading pair of
+backslashes is replaced by this prefix, giving \\\\?\\UNC\\server\\share. Prepending
+the drive-letter form verbatim would produce \\\\?\\\\\\server\\share, which Windows
+rejects.
 """
 
 
@@ -73,11 +95,20 @@ def _get_bucket_and_object_key(s3_path: str) -> Tuple[str, str]:
 
 def _normalize_windows_path(path: Union[Path, str]) -> Path:
     """
-    Strips \\\\?\\ prefix from Windows paths.
+    Strips the \\\\?\\ or \\\\?\\UNC\\ prefix from Windows paths.
     """
     p_str = str(path)
-    if p_str.startswith("\\\\?\\"):
-        return Path(p_str[4:])
+    if p_str.startswith(WINDOWS_UNC_DEVICE_PATH_STRING_PREFIX):
+        # Restore the leading pair of backslashes that the \\?\UNC\ form replaced, so the
+        # result is \\server\share again. Stripping the prefix outright would leave a
+        # network path looking relative, which would then compare unequal against the
+        # same path in its normal form. os.sep is not used here because this function
+        # parses Windows paths regardless of the running platform.
+        return Path(
+            WINDOWS_PATH_SEPARATOR * 2 + p_str[len(WINDOWS_UNC_DEVICE_PATH_STRING_PREFIX) :]
+        )
+    if p_str.startswith(WINDOWS_UNC_PATH_STRING_PREFIX):
+        return Path(p_str[len(WINDOWS_UNC_PATH_STRING_PREFIX) :])
     return Path(path)
 
 
@@ -117,10 +148,22 @@ def _get_long_path_compatible_path(original_path: Union[str, Path]) -> Path:
     make it long path compatible if needed on Windows and return the Path object
     https://learn.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation
 
+    The prefix is applied whenever the path is long, without consulting
+    _is_windows_long_path_registry_enabled.
+
+    That helper calls RtlAreLongPathsEnabled, which despite its name reports the
+    *process's* effective state -- the registry value AND the calling executable's
+    longPathAware manifest declaration -- not the registry value alone. So the old
+    condition suppressed the prefix exactly when the process did not need it. Removing
+    it is hardening rather than a bug fix: it makes the behaviour deterministic instead
+    of dependent on a misleadingly named API, and the prefix is a no-op for a process
+    that is already long path aware.
+
     :param original_path: Original unmodified path/string representing an absolute path.
-    show
-    :param show_long_path_warning: Whether to show a warning to the user that the resulting path is in a long path.
     :return: A Path object representing the long path compatible path.
+    :raises ValueError: if a long Windows path contains a ".." component. See the comment
+        in the branch below -- collapsing it here could target a different file than the
+        caller validated.
     """
 
     original_path_string = str(original_path)
@@ -130,10 +173,47 @@ def _get_long_path_compatible_path(original_path: Union[str, Path]) -> Path:
     if (
         len(original_path_string) + TEMP_DOWNLOAD_ADDED_CHARS_LENGTH >= WINDOWS_MAX_PATH_LENGTH
         and not original_path_string.startswith(WINDOWS_UNC_PATH_STRING_PREFIX)
-        and not _is_windows_long_path_registry_enabled()
     ):
-        # Prepend \\?\ to the file name to treat it as an UNC path
-        return Path(WINDOWS_UNC_PATH_STRING_PREFIX + original_path_string)
+        # A prefixed path is handed to the filesystem verbatim, with the Win32
+        # normalization turned off, so it has to be normalized here instead.
+        #
+        # ".." is rejected rather than collapsed. Collapsing it lexically would be
+        # unsound: callers such as download_file validate the path first with
+        # symlink-aware resolution (_ensure_paths_within_directory -> Path.resolve())
+        # and only then pass it here, so a lexical collapse can produce a *different*
+        # target than the one that was validated whenever a component is a symlink --
+        # turning "manifest with .. fails loudly" into "manifest with .. may write
+        # outside the root". Resolving with Path.resolve() instead would touch the
+        # filesystem on a path that may not exist yet, so the safe option is to refuse.
+        #
+        # This does not regress the case that motivated normalizing: a literal ".."
+        # past the prefix was already rejected by the filesystem. It only replaces an
+        # opaque OSError with an explicit one.
+        if _WINDOWS_PARENT_DIR_COMPONENT in PureWindowsPath(original_path_string).parts:
+            raise ValueError(
+                "Cannot build a long-path-compatible path from a path containing '..': "
+                f"{original_path_string}. Resolve the path before passing it here -- "
+                "collapsing '..' here could silently target a different file than the "
+                "caller validated."
+            )
+
+        # ntpath.normpath rather than PureWindowsPath: both convert separators, but
+        # normpath also drops "." components, keeps the leading pair of backslashes on
+        # \\server\share, and is idempotent on paths that already carry the prefix.
+        #
+        # ntpath rather than os.path because this branch parses Windows paths on any
+        # host: it is exercised on POSIX by tests that patch sys.platform, where
+        # os.path is posixpath.
+        normalized = ntpath.normpath(original_path_string)
+        pure = PureWindowsPath(normalized)
+
+        if pure.drive.startswith(WINDOWS_PATH_SEPARATOR * 2):
+            # A network path (\\server\share) takes the \\?\UNC\ form, which replaces the
+            # leading pair of backslashes with the prefix. Prepending \\?\ verbatim would
+            # produce \\?\\\server\share, which Windows rejects.
+            return Path(WINDOWS_UNC_DEVICE_PATH_STRING_PREFIX + normalized[2:])
+
+        return Path(WINDOWS_UNC_PATH_STRING_PREFIX + normalized)
     return Path(original_path_string)
 
 

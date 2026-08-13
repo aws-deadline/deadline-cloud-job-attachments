@@ -1,0 +1,165 @@
+# Verifies the Windows long-path handling against a real filesystem, in the two host
+# configurations that matter.
+#
+# The unit tests patch sys.platform, so they pin string construction and nothing more.
+# This workflow puts the constructed paths in front of the actual Windows filesystem:
+#
+#   * long drive-letter paths, including the temp-download suffix and rename
+#   * long UNC paths over a real SMB share created on the runner
+#   * the \\?\ -> plain round trip the session-directory containment check depends on
+#   * manifest snapshot and read-back at a long destination, end to end
+#   * unresolved relative paths from the CLI, on both the read and write sides
+#   * the snapshot Data directory creation
+#
+# It runs the same probe under two interpreters on a runner where LongPathsEnabled is
+# already ON (GitHub sets it in the base image):
+#
+#   long-path-aware   stock python.exe, which declares longPathAware
+#   non-aware         a copy with that declaration removed, standing in for the DCC
+#                     executables and pythonservice.exe this code actually runs inside
+#
+# The second is the configuration the pre-PR code got wrong, and the one that cannot be
+# reproduced with a stock interpreter.
+#
+# Harness from @crowecawcaw's longpath-probe branch.
+
+name: Windows Long Path Probe
+
+on:
+  pull_request:
+    branches: [ mainline, release, 'patch_*', 'feature_*' ]
+    paths:
+      - 'src/deadline/job_attachments/_utils.py'
+      - 'src/deadline/job_attachments/download.py'
+      - 'src/deadline/job_attachments/upload.py'
+      - 'src/deadline/job_attachments/api/**'
+      - 'src/deadline/job_attachments/os_file_permission.py'
+      - 'src/deadline/job_attachments/_incremental_downloads/**'
+      - 'scripted_tests/windows_long_path_probe.py'
+      - 'scripted_tests/longpath_api_scope.py'
+      - 'scripts/make_non_longpathaware_python.py'
+      - '.github/workflows/windows_long_path_probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  Probe:
+    name: ${{ matrix.host }} host, python ${{ matrix.python-version }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.9 is the floor that still gets a boto3 with a matching wheel here; 3.13 is the
+        # newest with a stable pywin32. The pathlib flavour logic this fix relies on
+        # changed shape in 3.12, so both sides of that boundary are covered.
+        python-version: ['3.9', '3.13']
+        host: [long-path-aware, non-aware]
+    env:
+      PY_COLORS: 1
+      # Short, so the probe has room to build paths past 260 characters.
+      PROBE_WORK_DIR: 'C:\japrobe'
+      PROBE_SHARE_NAME: jashare
+      PROBE_SHARE_DIR: 'C:\jashare'
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Confirm LongPathsEnabled is ON
+        shell: pwsh
+        run: |
+          $value = (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' -Name 'LongPathsEnabled').LongPathsEnabled
+          Write-Host "LongPathsEnabled = $value"
+          if ($value -ne 1) {
+            # The runner image sets this. If that ever changes, the non-aware leg would
+            # still pass for the wrong reason, so fail loudly instead.
+            throw "This probe requires LongPathsEnabled=1, which is the configuration the fix addresses. Got $value."
+          }
+
+      - name: Install the package
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install .
+
+      - name: Create the SMB share for UNC probes
+        id: share
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path $env:PROBE_SHARE_DIR -Force | Out-Null
+          # Grant the runner's own account access; the probe connects back over
+          # \\localhost, which is a real SMB round trip through the redirector rather than
+          # a local path in disguise.
+          New-SmbShare -Name $env:PROBE_SHARE_NAME -Path $env:PROBE_SHARE_DIR `
+            -FullAccess "$env:USERDOMAIN\$env:USERNAME" -ErrorAction Stop | Out-Null
+
+          $uncRoot = "\\localhost\$env:PROBE_SHARE_NAME"
+          # Confirm the share is actually reachable before the probe depends on it, so a
+          # share failure does not read as a path-handling failure.
+          New-Item -ItemType File -Path (Join-Path $uncRoot "reachable.txt") -Force | Out-Null
+          Remove-Item -Path (Join-Path $uncRoot "reachable.txt") -Force
+
+          Write-Host "UNC root: $uncRoot"
+          "unc-root=$uncRoot" >> $env:GITHUB_OUTPUT
+
+      - name: Build a non-longPathAware interpreter
+        id: nonaware
+        if: matrix.host == 'non-aware'
+        shell: pwsh
+        run: |
+          $exe = python scripts/make_non_longpathaware_python.py | Select-Object -Last 1
+          if ($LASTEXITCODE -ne 0) { throw "Failed to build the non-longPathAware interpreter" }
+          Write-Host "Patched interpreter: $exe"
+          "python-exe=$exe" >> $env:GITHUB_OUTPUT
+
+      # Determines whether RtlAreLongPathsEnabled() is registry-scoped or process-scoped.
+      # The answer decides whether the condition this PR removed was actually wrong.
+      - name: Determine the scope of RtlAreLongPathsEnabled
+        shell: pwsh
+        run: |
+          Write-Host "--- stock python.exe ---"
+          python scripted_tests/longpath_api_scope.py
+          if ('${{ matrix.host }}' -eq 'non-aware') {
+            Write-Host ""
+            Write-Host "--- non-longPathAware copy ---"
+            & '${{ steps.nonaware.outputs.python-exe }}' scripted_tests/longpath_api_scope.py
+          }
+
+      - name: Run the probe (long-path-aware host)
+        if: matrix.host == 'long-path-aware'
+        shell: pwsh
+        run: |
+          python scripted_tests/windows_long_path_probe.py `
+            --work-dir $env:PROBE_WORK_DIR `
+            --unc-root '${{ steps.share.outputs.unc-root }}' `
+            --require-registry-enabled
+
+      - name: Run the probe (non-longPathAware host)
+        if: matrix.host == 'non-aware'
+        shell: pwsh
+        run: |
+          # --require-host-unaware makes the run fail rather than pass if the patched
+          # interpreter silently behaves like the stock one.
+          & '${{ steps.nonaware.outputs.python-exe }}' scripted_tests/windows_long_path_probe.py `
+            --work-dir $env:PROBE_WORK_DIR `
+            --unc-root '${{ steps.share.outputs.unc-root }}' `
+            --require-registry-enabled `
+            --require-host-unaware
+
+      - name: Remove the SMB share
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-SmbShare -Name $env:PROBE_SHARE_NAME -Force -ErrorAction SilentlyContinue
+          # Long paths the probe may have left behind need the prefix to delete.
+          foreach ($dir in @($env:PROBE_WORK_DIR, $env:PROBE_SHARE_DIR)) {
+            if (Test-Path $dir) {
+              [System.IO.Directory]::Delete("\\?\$dir", $true)
+            }
+          }
