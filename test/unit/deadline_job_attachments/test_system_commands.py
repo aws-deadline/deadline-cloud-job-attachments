@@ -230,16 +230,16 @@ class TestGetShutdownArgsFailureContract:
         # GIVEN
         from deadline.job_attachments.vfs import VFSProcessManager
 
-        with (
-            patch(
-                "deadline.job_attachments.vfs.VFSProcessManager.find_vfs_link_dir",
-                return_value="/some/link/dir",
-            ),
-            patch("deadline.job_attachments.vfs.os.path.exists", return_value=True),
-            patch("deadline.job_attachments.vfs.find_system_command", return_value=None),
+        # Nested rather than a parenthesized group: this package supports Python
+        # 3.8, where `with (a, b):` is not valid syntax.
+        with patch(
+            "deadline.job_attachments.vfs.VFSProcessManager.find_vfs_link_dir",
+            return_value="/some/link/dir",
         ):
-            # WHEN
-            result = VFSProcessManager.get_shutdown_args("/mnt/point", "job-user")
+            with patch("deadline.job_attachments.vfs.os.path.exists", return_value=True):
+                with patch("deadline.job_attachments.vfs.find_system_command", return_value=None):
+                    # WHEN
+                    result = VFSProcessManager.get_shutdown_args("/mnt/point", "job-user")
 
         # THEN
         assert result is None
@@ -250,19 +250,17 @@ class TestGetShutdownArgsFailureContract:
         # GIVEN
         from deadline.job_attachments.vfs import VFSProcessManager
 
-        with (
-            patch(
-                "deadline.job_attachments.vfs.VFSProcessManager.find_vfs_link_dir",
-                return_value="/some/link/dir",
-            ),
-            patch("deadline.job_attachments.vfs.os.path.exists", return_value=True),
-            patch(
-                "deadline.job_attachments.vfs.find_system_command",
-                return_value="/trusted/sudo",
-            ),
+        with patch(
+            "deadline.job_attachments.vfs.VFSProcessManager.find_vfs_link_dir",
+            return_value="/some/link/dir",
         ):
-            # WHEN
-            result = VFSProcessManager.get_shutdown_args("/mnt/point", "job-user")
+            with patch("deadline.job_attachments.vfs.os.path.exists", return_value=True):
+                with patch(
+                    "deadline.job_attachments.vfs.find_system_command",
+                    return_value="/trusted/sudo",
+                ):
+                    # WHEN
+                    result = VFSProcessManager.get_shutdown_args("/mnt/point", "job-user")
 
         # THEN
         assert result is not None
