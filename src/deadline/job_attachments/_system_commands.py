@@ -2,32 +2,28 @@
 
 """Resolution of system command names to absolute paths, without consulting PATH.
 
-The VFS mount and unmount paths invoke ``sudo`` to act as the job user, and query
-mount state with ``findmnt``. Invoking those by bare name resolves them through
-``PATH``; where any part of that search path is influenced by less-trusted input,
-the resolution itself is the vulnerability (CWE-426, Untrusted Search Path).
+The problem: the VFS mount and unmount paths invoke ``sudo`` to act as the job
+user, and query mount state with ``findmnt``. Invoking those by bare name resolves
+them through ``PATH``, which makes the binary actually run depend on the search
+path of whatever launched the process, for commands that cross a user boundary.
 
-This module removes ``PATH`` from the picture by scanning a fixed list of trusted
-absolute directories instead.
+The solution: callers pass a bare name here and get back an absolute path found by
+scanning a fixed list of trusted directories, so ``PATH`` plays no part.
 
-Three properties are load-bearing, and each is pinned by a test in
-``test/unit/deadline_job_attachments/test_system_commands.py``:
+Three properties make that work, and all three are easy to undo by accident:
 
-* **``PATH`` is never read.** Not directly, and not indirectly via
-  :func:`shutil.which`, which resolves through ``PATH`` and so would reintroduce
-  the problem while appearing to fix it.
-* **Only paths under :data:`TRUSTED_SYSTEM_DIRECTORIES` are returned**, and a
-  name containing a path separator is rejected -- otherwise joining ``/usr/bin``
-  with ``../../tmp/evil`` would make this module the injection point it exists to
-  remove.
-* **A missing command raises.** Falling back to the bare name would restore the
-  vulnerability while looking fixed, which is the worst available failure mode
-  for this class of fix.
+* ``PATH`` is never read. Not directly, and not through :func:`shutil.which`,
+  which resolves via ``PATH`` and so would restore the original behaviour while
+  looking like a fix.
+* Only paths under :data:`TRUSTED_SYSTEM_DIRECTORIES` are returned. A name
+  containing a path separator is rejected, because ``os.path.join`` would
+  otherwise let ``../../tmp/evil`` escape the directory being searched.
+* A missing command raises. Returning the bare name as a fallback would put
+  resolution back on ``PATH`` while the code still read as though it did not.
 
-Why a resolver rather than absolute-path literals: the locations are not
-universal. NixOS keeps the setuid ``sudo`` wrapper at ``/run/wrappers/bin/sudo``,
-so a hardcoded ``/usr/bin/sudo`` would turn a security bug into a mount failure
-on those hosts.
+A resolver rather than absolute-path literals, because the locations are not
+universal: NixOS keeps the setuid ``sudo`` wrapper at ``/run/wrappers/bin/sudo``,
+so a hardcoded ``/usr/bin/sudo`` would leave those hosts unable to mount at all.
 """
 
 from __future__ import annotations
