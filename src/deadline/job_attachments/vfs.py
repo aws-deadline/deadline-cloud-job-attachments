@@ -13,6 +13,7 @@ from typing import Callable, Dict, Union, Optional
 # attributes of `deadline.job_attachments.vfs`, which the API-surface check
 # reports as two added public aliases -- an unintended addition to the package's
 # contract from what is meant to be an internal helper.
+from ._system_commands import SystemCommandNotFoundError
 from ._system_commands import find_system_command as _find_system_command
 from ._system_commands import system_command_path as _system_command_path
 from .exceptions import (
@@ -234,7 +235,24 @@ class VFSProcessManager(object):
         os.path.ismount returns false for libfuse mounts owned by "other users",
         use findmnt instead
         """
-        return subprocess.run([_system_command_path("findmnt"), path]).returncode == 0
+        return subprocess.run([cls._resolve_or_raise("findmnt"), path]).returncode == 0
+
+    @staticmethod
+    def _resolve_or_raise(name: str) -> str:
+        """Resolve a system command, reporting failure as VFSExecutableMissingError.
+
+        The translation is the point. Callers of the mount and unmount paths handle
+        ``VFSExecutableMissingError`` -- ``asset_sync`` catches it and falls back to a
+        copy-based sync -- and handle no other type for "a binary I need is not
+        here". Letting the resolver's own exception escape would either bypass that
+        fallback, or, if it inherited from ``FileNotFoundError``, be misreported by
+        the ``except FileNotFoundError`` blocks in this module that mean "the VFS pid
+        file is missing".
+        """
+        try:
+            return _system_command_path(name)
+        except SystemCommandNotFoundError as e:
+            raise VFSExecutableMissingError(str(e)) from e
 
     @classmethod
     def wait_for_mount(cls, mount_path, session_dir, mount_wait_seconds=60, expected=True) -> bool:
@@ -314,7 +332,7 @@ class VFSProcessManager(object):
         executable = VFSProcessManager.find_vfs_launch_script()
 
         command = (
-            f"{_system_command_path('sudo')} -E -u {self._os_user}"
+            f"{self._resolve_or_raise('sudo')} -E -u {self._os_user}"
             f" {executable} {mount_point} -f --clienttype=deadline"
             f" --bucket={self._asset_bucket}"
             f" --manifest={self._manifest_path}"

@@ -59,18 +59,23 @@ TRUSTED_SYSTEM_DIRECTORIES: _Tuple[str, ...] = (
 )
 
 
-class SystemCommandNotFoundError(FileNotFoundError):
+class SystemCommandNotFoundError(Exception):
     """A required system command was not present in any trusted directory.
 
-    A :class:`FileNotFoundError`, and therefore an :class:`OSError`, on purpose.
+    Deliberately not a :class:`FileNotFoundError`, because ``vfs`` already uses that
+    type for something else. Three ``except FileNotFoundError`` blocks there mean
+    "the VFS pid file is missing", and one of them wraps a call chain that reaches
+    this resolver: ``kill_all_processes`` -> ``shutdown_libfuse_mount`` ->
+    ``wait_for_mount`` -> ``is_mount``. Inheriting from ``FileNotFoundError`` let a
+    resolution failure be reported as a missing pid file and skip the cleanup that
+    follows.
 
-    An earlier revision made this a plain ``Exception``, reasoning that an
-    unavailable privileged helper must not be absorbed by handlers that catch
-    ``FileNotFoundError`` to mean "carry on degraded". That reasoning assumed
-    rather than checked what surrounding code does with it, and the semantics this
-    condition actually has are ``FileNotFoundError``'s: the thing we meant to
-    launch is not there. Remaining a distinct type still lets a caller tell "not in
-    any trusted directory" apart from "``exec`` failed", and the message says which.
+    Callers in ``vfs`` translate this into :class:`VFSExecutableMissingError`, which
+    is the type their own callers already handle by falling back to a copy-based
+    sync. This differs from the sibling resolver in ``openjd-sessions``, where
+    inheriting from ``OSError`` is correct because its cancel path deliberately
+    catches ``OSError`` so a failed signal cannot unwind a cancelation. Same
+    problem, opposite answer, because the surrounding handlers differ.
     """
 
 

@@ -176,17 +176,40 @@ class TestMissingCommandRaises:
         assert "deadline-definitely-not-installed" in message
         assert "PATH is deliberately not searched" in message
 
-    def test_is_a_filenotfounderror(self) -> None:
-        """The inverse of what an earlier revision asserted, and the reversal is the
-        point.
+    def test_is_not_a_filenotfounderror(self) -> None:
+        """vfs already uses FileNotFoundError to mean "the VFS pid file is missing".
 
-        That revision made this a plain Exception so it could not be absorbed by
-        "carry on degraded" handlers -- a theory about surrounding code that was
-        never checked against it. The semantics this condition has are
-        FileNotFoundError's: the thing we meant to launch is not there.
+        Three handlers in that module catch it for that purpose, and one of them
+        wraps a call chain reaching this resolver: kill_all_processes ->
+        shutdown_libfuse_mount -> wait_for_mount -> is_mount. Inheriting from
+        FileNotFoundError let a resolution failure be logged as a missing pid file
+        and skip the os.remove that follows, leaving a stale file behind.
+
+        Note this is the opposite of the right answer in the openjd-sessions
+        resolver, whose cancel path deliberately catches OSError so that a failed
+        signal cannot unwind a cancelation. The base class follows the handlers that
+        surround each one, so the two differ on purpose.
         """
-        assert issubclass(SystemCommandNotFoundError, FileNotFoundError)
-        assert SystemCommandNotFoundError is not FileNotFoundError
+        assert not issubclass(SystemCommandNotFoundError, FileNotFoundError)
+        assert not issubclass(SystemCommandNotFoundError, OSError)
+
+    def test_vfs_translates_it_into_the_type_callers_handle(self) -> None:
+        """asset_sync guards the mount paths with `except VFSExecutableMissingError`
+        and nothing else, so an untranslated resolver failure would bypass its
+        fallback to a copy-based sync instead of triggering it."""
+        # GIVEN
+        from deadline.job_attachments.exceptions import VFSExecutableMissingError
+        from deadline.job_attachments.vfs import VFSProcessManager
+
+        # WHEN / THEN
+        with patch(
+            "deadline.job_attachments.vfs._system_command_path",
+            side_effect=SystemCommandNotFoundError("no sudo here"),
+        ):
+            with pytest.raises(VFSExecutableMissingError) as excinfo:
+                VFSProcessManager._resolve_or_raise("sudo")
+
+        assert "no sudo here" in str(excinfo.value)
 
 
 class TestTrustedDirectories:
