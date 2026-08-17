@@ -11,9 +11,11 @@ from typing import Callable, Dict, Union, Optional
 
 # Aliased under private names. Imported plainly, these two become public
 # attributes of `deadline.job_attachments.vfs`, which the API-surface check
-# reports as two added public aliases -- an unintended addition to the package's
-# contract from what is meant to be an internal helper.
-from ._system_commands import SystemCommandNotFoundError
+# reports as added public aliases -- an unintended widening of the package's
+# contract from what is meant to be an internal helper. All three are aliased,
+# including the exception: re-exporting it plainly failed the same gate a second
+# time, for the same reason.
+from ._system_commands import SystemCommandNotFoundError as _SystemCommandNotFoundError
 from ._system_commands import find_system_command as _find_system_command
 from ._system_commands import system_command_path as _system_command_path
 from .exceptions import (
@@ -251,7 +253,7 @@ class VFSProcessManager(object):
         """
         try:
             return _system_command_path(name)
-        except SystemCommandNotFoundError as e:
+        except _SystemCommandNotFoundError as e:
             raise VFSExecutableMissingError(str(e)) from e
 
     @classmethod
