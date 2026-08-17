@@ -385,6 +385,20 @@ class VFSProcessManager(object):
         Determine where the VFS executable we'll be launching lives so we can
         find the correct relative paths around it for LD_LIBRARY_PATH and config files
         :return: Path to VFS executable
+
+        Note this deliberately does not use the trusted-directory resolver in
+        ``_system_commands``, and the difference is worth understanding before
+        changing either one. That resolver exists for *system* commands, whose
+        locations are fixed and small in number. The VFS executable is a shipped
+        artifact whose location is a deployment choice: this function consults
+        ``shutil.which``, then ``$DEADLINE_VFS_INSTALL_PATH``, then a path relative to
+        the working directory, because a deployment may legitimately put it in any of
+        them.
+
+        So the search path for this binary, and for the launch script found by
+        :meth:`find_vfs_launch_script`, remains wider than for ``sudo`` or
+        ``findmnt``. Narrowing it is a separate question about how the VFS is
+        deployed, not about command resolution, and it is knowingly out of scope here.
         """
         if VFSProcessManager.exe_path is not None:
             log.info(f"Using saved path {VFSProcessManager.exe_path}")
