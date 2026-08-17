@@ -9,7 +9,7 @@ from pathlib import Path
 import threading
 from typing import Callable, Dict, Union, Optional
 
-from ._system_commands import system_command_path
+from ._system_commands import find_system_command, system_command_path
 from .exceptions import (
     VFSExecutableMissingError,
     VFSFailedToMountError,
@@ -120,8 +120,18 @@ class VFSProcessManager(object):
         if not os.path.exists(fusermount3_path):
             log.warning(f"fusermount3 not found at {cls.find_vfs_link_dir()}")
             return None
+        # find_system_command rather than system_command_path: this function's
+        # contract is Optional[list], and it already answers "a binary I need is
+        # missing" with a warning and None just above. Raising for sudo instead
+        # would be a second, undeclared failure mode on the same line of code --
+        # and it escapes into shutdown_libfuse_mount's cleanup path, whose only
+        # handling for this function is the None check.
+        sudo_path = find_system_command("sudo")
+        if sudo_path is None:
+            log.warning("sudo not found in any trusted directory; cannot unmount as the job user")
+            return None
         return [
-            system_command_path("sudo"),
+            sudo_path,
             "-u",
             os_user,
             fusermount3_path,

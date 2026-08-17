@@ -34,22 +34,31 @@ from deadline.job_attachments.vfs import (
 
 
 # TODO: Remove the skip once we support Windows for AssetSync
+@pytest.fixture(autouse=True)
+def stub_system_command_path():
+    """Stub the trusted-path command resolver, for every test in this module.
+
+    Two reasons it is module-scoped rather than scoped to TestVFSProcessmanager:
+
+    * Command assertions pin the argv shape rather than this host's sudo and
+      findmnt locations, so a bare or hardcoded command name reappearing in the
+      source fails them.
+    * TRUSTED_SYSTEM_DIRECTORIES is a POSIX layout, so a real lookup raises on
+      Windows. TestVFSProcessmanager is skipped there, but
+      test_vfs_launched_in_session_folder and test_vfs_has_expected_logs_folder
+      are module-level and are not -- they build a launch command on Windows and
+      only care about session-folder behaviour. Without this fixture they failed
+      the windows-latest CI leg.
+    """
+    with patch(
+        f"{deadline.__package__}.job_attachments.vfs.system_command_path",
+        side_effect=lambda name: f"/trusted/{name}",
+    ) as mock_resolver:
+        yield mock_resolver
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="VFS doesn't currently support Windows")
 class TestVFSProcessmanager:
-    @pytest.fixture(autouse=True)
-    def stub_system_command_path(self):
-        """Stub the trusted-path command resolver.
-
-        Command assertions in this class then pin the argv shape rather than this
-        host's sudo and findmnt locations, and a bare or hardcoded command name
-        reappearing in the source fails those assertions.
-        """
-        with patch(
-            f"{deadline.__package__}.job_attachments.vfs.system_command_path",
-            side_effect=lambda name: f"/trusted/{name}",
-        ) as mock_resolver:
-            yield mock_resolver
-
     @pytest.fixture(autouse=True)
     def setup_and_teardown(
         self,

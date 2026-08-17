@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import stat
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -93,6 +94,11 @@ class TestOnlySearchesTrustedDirectories:
         # THEN
         assert result == str(first / "target-cmd")
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="On Windows os.access(X_OK) is true for any existing file, so "
+        "'not executable' is not expressible there",
+    )
     def test_ignores_a_non_executable_file(self, tmp_path: Path) -> None:
         # GIVEN
         (tmp_path / "target-cmd").write_text("not executable")
@@ -114,6 +120,11 @@ class TestRejectsNonBareNames:
             pytest.param("", id="empty"),
             pytest.param(".", id="curdir"),
             pytest.param("..", id="pardir"),
+            # ntpath.join(r"C:\Windows\System32", "D:evil") == "D:evil" -- a
+            # drive-relative name discards the trusted prefix while containing no
+            # separator, so a separator-only guard lets it through.
+            pytest.param("D:evil", id="drive-relative"),
+            pytest.param("a:b", id="colon"),
         ],
     )
     def test_rejects_name_with_a_path_component(self, name: str) -> None:
@@ -164,10 +175,17 @@ class TestMissingCommandRaises:
         assert "deadline-definitely-not-installed" in message
         assert "PATH is deliberately not searched" in message
 
-    def test_is_not_a_filenotfounderror(self) -> None:
-        """Code around subprocess treats FileNotFoundError as "optional tool
-        absent, carry on". This must not be absorbed by that handling."""
-        assert not issubclass(SystemCommandNotFoundError, FileNotFoundError)
+    def test_is_a_filenotfounderror(self) -> None:
+        """The inverse of what an earlier revision asserted, and the reversal is the
+        point.
+
+        That revision made this a plain Exception so it could not be absorbed by
+        "carry on degraded" handlers -- a theory about surrounding code that was
+        never checked against it. The semantics this condition has are
+        FileNotFoundError's: the thing we meant to launch is not there.
+        """
+        assert issubclass(SystemCommandNotFoundError, FileNotFoundError)
+        assert SystemCommandNotFoundError is not FileNotFoundError
 
 
 class TestTrustedDirectories:
@@ -185,3 +203,69 @@ class TestTrustedDirectories:
         """On non-usr-merged distributions some commands exist only under /sbin."""
         assert "/usr/sbin" in TRUSTED_SYSTEM_DIRECTORIES
         assert "/sbin" in TRUSTED_SYSTEM_DIRECTORIES
+
+    def test_the_two_nixos_entries_are_present_as_a_pair(self) -> None:
+        """/run/wrappers/bin alone supports no complete code path: it holds only the
+        setuid wrappers, so on NixOS it resolves sudo and nothing else. findmnt is in
+        the sw/bin symlink farm, so without that entry the ordering would resolve
+        sudo and then fail on findmnt."""
+        assert "/run/wrappers/bin" in TRUSTED_SYSTEM_DIRECTORIES
+        assert "/run/current-system/sw/bin" in TRUSTED_SYSTEM_DIRECTORIES
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="VFS doesn't currently support Windows")
+class TestGetShutdownArgsFailureContract:
+    """`get_shutdown_args` must answer a missing binary with None, not an exception.
+
+    It is typed `Optional[list]` and already warns-and-returns-None for a missing
+    fusermount3. Its caller, `shutdown_libfuse_mount`, has no except clause for this
+    function -- only a falsy check -- so an exception here escapes the unmount
+    cleanup path instead of letting it fall through to `wait_for_mount`.
+
+    Pinned because the obvious refactor (use the raising resolver everywhere, for
+    consistency with the launch path) silently introduces that second failure mode.
+    """
+
+    def test_returns_none_when_sudo_is_not_in_a_trusted_directory(self) -> None:
+        # GIVEN
+        from deadline.job_attachments.vfs import VFSProcessManager
+
+        with (
+            patch(
+                "deadline.job_attachments.vfs.VFSProcessManager.find_vfs_link_dir",
+                return_value="/some/link/dir",
+            ),
+            patch("deadline.job_attachments.vfs.os.path.exists", return_value=True),
+            patch("deadline.job_attachments.vfs.find_system_command", return_value=None),
+        ):
+            # WHEN
+            result = VFSProcessManager.get_shutdown_args("/mnt/point", "job-user")
+
+        # THEN
+        assert result is None
+
+    def test_returns_argv_when_sudo_is_present(self) -> None:
+        """Negative control: the None above must be about sudo being absent, not
+        about this path being broken outright."""
+        # GIVEN
+        from deadline.job_attachments.vfs import VFSProcessManager
+
+        with (
+            patch(
+                "deadline.job_attachments.vfs.VFSProcessManager.find_vfs_link_dir",
+                return_value="/some/link/dir",
+            ),
+            patch("deadline.job_attachments.vfs.os.path.exists", return_value=True),
+            patch(
+                "deadline.job_attachments.vfs.find_system_command",
+                return_value="/trusted/sudo",
+            ),
+        ):
+            # WHEN
+            result = VFSProcessManager.get_shutdown_args("/mnt/point", "job-user")
+
+        # THEN
+        assert result is not None
+        assert result[0] == "/trusted/sudo"
+        assert "job-user" in result
+        assert result[-1] == "/mnt/point"
