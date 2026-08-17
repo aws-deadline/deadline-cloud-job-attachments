@@ -10,6 +10,7 @@ test here fail. See that module's docstring for why each property matters.
 from __future__ import annotations
 
 import os
+import posixpath
 import stat
 import sys
 from pathlib import Path
@@ -190,9 +191,17 @@ class TestMissingCommandRaises:
 
 class TestTrustedDirectories:
     def test_all_entries_are_absolute(self) -> None:
-        """A relative entry would resolve against the process working directory."""
+        """A relative entry would resolve against the process working directory.
+
+        Checked with posixpath rather than os.path on purpose. These entries are
+        POSIX paths -- the VFS this module serves is POSIX-only -- and from Python
+        3.13 ntpath.isabs() no longer calls a single-slash path absolute, treating
+        it as drive-relative instead. Using os.path made this assertion a statement
+        about the host running the tests rather than about the constant, and it
+        failed the windows-latest 3.13 leg for that reason.
+        """
         for directory in TRUSTED_SYSTEM_DIRECTORIES:
-            assert os.path.isabs(directory), f"{directory} is not absolute"
+            assert posixpath.isabs(directory), f"{directory} is not absolute"
 
     def test_searches_the_setuid_wrapper_directory_before_usr_bin(self) -> None:
         assert TRUSTED_SYSTEM_DIRECTORIES.index(
@@ -237,7 +246,7 @@ class TestGetShutdownArgsFailureContract:
             return_value="/some/link/dir",
         ):
             with patch("deadline.job_attachments.vfs.os.path.exists", return_value=True):
-                with patch("deadline.job_attachments.vfs.find_system_command", return_value=None):
+                with patch("deadline.job_attachments.vfs._find_system_command", return_value=None):
                     # WHEN
                     result = VFSProcessManager.get_shutdown_args("/mnt/point", "job-user")
 
@@ -256,7 +265,7 @@ class TestGetShutdownArgsFailureContract:
         ):
             with patch("deadline.job_attachments.vfs.os.path.exists", return_value=True):
                 with patch(
-                    "deadline.job_attachments.vfs.find_system_command",
+                    "deadline.job_attachments.vfs._find_system_command",
                     return_value="/trusted/sudo",
                 ):
                     # WHEN

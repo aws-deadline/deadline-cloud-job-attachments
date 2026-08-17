@@ -49,11 +49,18 @@ def stub_system_command_path():
       are module-level and are not -- they build a launch command on Windows and
       only care about session-folder behaviour. Without this fixture they failed
       the windows-latest CI leg.
+
+    Both resolver entry points are stubbed. Stubbing only ``system_command_path``
+    left ``get_shutdown_args`` calling the real ``find_system_command``, so its
+    argv assertions silently stopped pinning what this docstring claims.
     """
     with patch(
-        f"{deadline.__package__}.job_attachments.vfs.system_command_path",
+        f"{deadline.__package__}.job_attachments.vfs._system_command_path",
         side_effect=lambda name: f"/trusted/{name}",
-    ) as mock_resolver:
+    ) as mock_resolver, patch(
+        f"{deadline.__package__}.job_attachments.vfs._find_system_command",
+        side_effect=lambda name: f"/trusted/{name}",
+    ):
         yield mock_resolver
 
 

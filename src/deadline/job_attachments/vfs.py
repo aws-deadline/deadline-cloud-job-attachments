@@ -9,7 +9,12 @@ from pathlib import Path
 import threading
 from typing import Callable, Dict, Union, Optional
 
-from ._system_commands import find_system_command, system_command_path
+# Aliased under private names. Imported plainly, these two become public
+# attributes of `deadline.job_attachments.vfs`, which the API-surface check
+# reports as two added public aliases -- an unintended addition to the package's
+# contract from what is meant to be an internal helper.
+from ._system_commands import find_system_command as _find_system_command
+from ._system_commands import system_command_path as _system_command_path
 from .exceptions import (
     VFSExecutableMissingError,
     VFSFailedToMountError,
@@ -126,7 +131,7 @@ class VFSProcessManager(object):
         # would be a second, undeclared failure mode on the same line of code --
         # and it escapes into shutdown_libfuse_mount's cleanup path, whose only
         # handling for this function is the None check.
-        sudo_path = find_system_command("sudo")
+        sudo_path = _find_system_command("sudo")
         if sudo_path is None:
             log.warning("sudo not found in any trusted directory; cannot unmount as the job user")
             return None
@@ -229,7 +234,7 @@ class VFSProcessManager(object):
         os.path.ismount returns false for libfuse mounts owned by "other users",
         use findmnt instead
         """
-        return subprocess.run([system_command_path("findmnt"), path]).returncode == 0
+        return subprocess.run([_system_command_path("findmnt"), path]).returncode == 0
 
     @classmethod
     def wait_for_mount(cls, mount_path, session_dir, mount_wait_seconds=60, expected=True) -> bool:
@@ -309,7 +314,7 @@ class VFSProcessManager(object):
         executable = VFSProcessManager.find_vfs_launch_script()
 
         command = (
-            f"{system_command_path('sudo')} -E -u {self._os_user}"
+            f"{_system_command_path('sudo')} -E -u {self._os_user}"
             f" {executable} {mount_point} -f --clienttype=deadline"
             f" --bucket={self._asset_bucket}"
             f" --manifest={self._manifest_path}"
