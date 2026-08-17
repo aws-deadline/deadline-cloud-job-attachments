@@ -9,6 +9,7 @@ from pathlib import Path
 import threading
 from typing import Callable, Dict, Union, Optional
 
+from ._system_commands import system_command_path
 from .exceptions import (
     VFSExecutableMissingError,
     VFSFailedToMountError,
@@ -119,7 +120,14 @@ class VFSProcessManager(object):
         if not os.path.exists(fusermount3_path):
             log.warning(f"fusermount3 not found at {cls.find_vfs_link_dir()}")
             return None
-        return ["sudo", "-u", os_user, fusermount3_path, "-u", mount_path]
+        return [
+            system_command_path("sudo"),
+            "-u",
+            os_user,
+            fusermount3_path,
+            "-u",
+            mount_path,
+        ]
 
     @classmethod
     def shutdown_libfuse_mount(cls, mount_path: str, os_user: str, session_dir: Path) -> bool:
@@ -211,7 +219,7 @@ class VFSProcessManager(object):
         os.path.ismount returns false for libfuse mounts owned by "other users",
         use findmnt instead
         """
-        return subprocess.run(["findmnt", path]).returncode == 0
+        return subprocess.run([system_command_path("findmnt"), path]).returncode == 0
 
     @classmethod
     def wait_for_mount(cls, mount_path, session_dir, mount_wait_seconds=60, expected=True) -> bool:
@@ -291,7 +299,7 @@ class VFSProcessManager(object):
         executable = VFSProcessManager.find_vfs_launch_script()
 
         command = (
-            f"sudo -E -u {self._os_user}"
+            f"{system_command_path('sudo')} -E -u {self._os_user}"
             f" {executable} {mount_point} -f --clienttype=deadline"
             f" --bucket={self._asset_bucket}"
             f" --manifest={self._manifest_path}"

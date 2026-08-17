@@ -37,6 +37,20 @@ from deadline.job_attachments.vfs import (
 @pytest.mark.skipif(sys.platform == "win32", reason="VFS doesn't currently support Windows")
 class TestVFSProcessmanager:
     @pytest.fixture(autouse=True)
+    def stub_system_command_path(self):
+        """Stub the trusted-path command resolver.
+
+        Command assertions in this class then pin the argv shape rather than this
+        host's sudo and findmnt locations, and a bare or hardcoded command name
+        reappearing in the source fails those assertions.
+        """
+        with patch(
+            f"{deadline.__package__}.job_attachments.vfs.system_command_path",
+            side_effect=lambda name: f"/trusted/{name}",
+        ) as mock_resolver:
+            yield mock_resolver
+
+    @pytest.fixture(autouse=True)
     def setup_and_teardown(
         self,
         request,
@@ -87,7 +101,7 @@ class TestVFSProcessmanager:
         test_executable = os.environ[DEADLINE_VFS_ENV_VAR] + DEADLINE_VFS_EXECUTABLE_SCRIPT
 
         expected_launch_command = (
-            f"sudo -E -u {test_os_user}"
+            f"/trusted/sudo -E -u {test_os_user}"
             f" {test_executable} {local_root} -f --clienttype=deadline"
             f" --bucket={self.s3_settings.s3BucketName}"
             f" --manifest={manifest_path}"
@@ -119,7 +133,7 @@ class TestVFSProcessmanager:
         VFSProcessManager.launch_script_path = None
 
         expected_launch_command = (
-            f"sudo -E -u {test_os_user}"
+            f"/trusted/sudo -E -u {test_os_user}"
             f" {test_executable} {local_root} -f --clienttype=deadline"
             f" --bucket={self.s3_settings.s3BucketName}"
             f" --manifest={manifest_path}"
