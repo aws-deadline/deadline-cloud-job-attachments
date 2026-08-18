@@ -346,7 +346,9 @@ class VFSProcessManager(object):
         if self._asset_cache_path is not None:
             command += f" --cachedir={self._asset_cache_path}"
 
-        log.info(f"Got launch command {command}")
+        # The assembled command is deliberately not logged. It is built here and
+        # logged again by start(), so this line only ever duplicated that one, and
+        # the fields worth having are logged individually there.
         return command
 
     @classmethod
@@ -523,7 +525,20 @@ class VFSProcessManager(object):
         VFSProcessManager.create_mount_point(self._mount_point)
         start_command = self.build_launch_command(self._mount_point)
         launch_env = self.get_launch_environ()
-        log.info(f"Launching VFS with command {start_command}")
+        # The assembled command is deliberately not logged. It embeds the resolved
+        # absolute path of sudo, and CodeQL reports logging the resulting string as
+        # a clear-text log of sensitive data. The fields that make a launch
+        # diagnosable are logged individually instead, and none of them carry that
+        # dataflow. Between these and the run_path, mount_point and user lines
+        # above, every argument the command carried is still on the record.
+        log.info(
+            f"Launching VFS: executable={VFSProcessManager.launch_script_path}"
+            f" bucket={self._asset_bucket}"
+            f" manifest={self._manifest_path}"
+            f" region={self._region}"
+            f" casprefix={self._cas_prefix}"
+            f" cachedir={self._asset_cache_path}"
+        )
         log.info(f"Launching with environment {launch_env}")
         log.info(f"Launching as user {self._os_user}")
 
@@ -552,9 +567,12 @@ class VFSProcessManager(object):
             )
             self._vfs_thread.start()
 
-        except Exception as e:
-            log.exception(f"Exception during launch with command {start_command} exception {e}")
-            raise e
+        except Exception:
+            # Command omitted for the reason given above the launch log. log.exception
+            # already carries the traceback and the exception itself, so the mount
+            # point is the part that was not otherwise recoverable from this record.
+            log.exception(f"Exception during VFS launch at mount point {self._mount_point}")
+            raise
         log.info(f"Launched VFS as pid {self._vfs_proc.pid}")
 
         is_mounted = VFSProcessManager.wait_for_mount(self.get_mount_point(), session_dir)

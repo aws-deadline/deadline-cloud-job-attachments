@@ -40,30 +40,13 @@ __all__ = [
 
 
 TRUSTED_SYSTEM_DIRECTORIES: _Tuple[str, ...] = (
-    # Known CodeQL interaction, open at the time of writing.
-    #
-    # py/clear-text-logging-sensitive-data treats this tuple as a sensitive-data
-    # source, so a resolved path such as "/usr/bin/sudo" taints any string it is
-    # interpolated into. `build_launch_command` puts that path into the command it
-    # returns, and three pre-existing log statements in vfs.py log that command, so
-    # those three lines are now reported as logging sensitive data in clear text.
-    #
-    # The finding is a false positive: every value here is a hardcoded absolute
-    # system binary directory, and the resolved result is the path of a system
-    # executable. Neither is a secret, attacker-supplied, or user-specific. The log
-    # statements themselves are unchanged from mainline; only the dataflow reaching
-    # them is new.
-    #
-    # Inline `# codeql[...]` suppression was tried and is not honoured for these
-    # alerts, so clearing them needs either a repository CodeQL configuration, a
-    # dismissal in the Security tab, or dropping the assembled command from those
-    # log lines. The last option changes operator-facing output in logging this
-    # change does not otherwise touch, so it is left to the owners of that logging
-    # rather than decided here.
-    #
-    # The resolved path cannot simply be kept out of the command: it is executed
-    # with `shell=True`, so a bare name there would be resolved by the shell via
-    # PATH, which is the behaviour this module exists to remove.
+    # Note for anyone adding a log statement that includes a resolved path: don't
+    # interpolate one into a string that gets logged. CodeQL treats this tuple as a
+    # sensitive-data source, so the resolved path taints whatever it is joined to,
+    # and logging that string is reported as clear-text logging of sensitive data.
+    # `vfs.build_launch_command` embeds a resolved path in the command it returns,
+    # which is why the launch logging there records the individual arguments rather
+    # than the assembled command.
     #
     # Ordered, deliberately. On NixOS the setuid `sudo` wrapper lives here and the
     # /usr/bin copy is absent or not setuid, so this must be searched first.
