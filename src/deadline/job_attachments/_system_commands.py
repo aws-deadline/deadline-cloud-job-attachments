@@ -40,6 +40,26 @@ __all__ = [
 
 
 TRUSTED_SYSTEM_DIRECTORIES: _Tuple[str, ...] = (
+    # CodeQL note, referenced by three suppressions in vfs.py.
+    #
+    # CodeQL's py/clear-text-logging-sensitive-data treats this tuple as a
+    # sensitive-data source, so a resolved path such as "/usr/bin/sudo" taints any
+    # string it is interpolated into. `build_launch_command` puts that path in the
+    # command it returns, and three pre-existing log statements in vfs.py log that
+    # command, so those three lines are reported as logging sensitive data in clear
+    # text.
+    #
+    # The finding is a false positive: every value here is a hardcoded absolute
+    # system binary directory, and the resolved result is a path to a system
+    # executable. Neither is a secret, and none of it is attacker-supplied or
+    # user-specific. The log statements are unchanged by the commit that introduced
+    # the alerts -- only the dataflow reaching them is new -- so the suppressions
+    # record why the flow is benign rather than silencing a genuine leak.
+    #
+    # If the alternative is preferred, the fix would be to redact or drop the full
+    # command from those log lines, which is a change to operator-facing output and
+    # so is left to the owners of that logging.
+    #
     # Ordered, deliberately. On NixOS the setuid `sudo` wrapper lives here and the
     # /usr/bin copy is absent or not setuid, so this must be searched first.
     "/run/wrappers/bin",
