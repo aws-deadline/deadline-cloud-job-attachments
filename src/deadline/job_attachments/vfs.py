@@ -38,6 +38,14 @@ DEADLINE_VFS_EXECUTABLE_SCRIPT = "/scripts/production/al2/run_deadline_vfs_al2.s
 DEADLINE_VFS_PID_FILE_NAME = "vfs_pids.txt"
 DEADLINE_MANIFEST_GROUP_READ_PERMS = 0o640
 
+_VFS_TERMINATE_WAIT_SECONDS = 5
+"""How long to wait for a VFS process to exit after terminating a failed mount.
+
+Underscore-prefixed deliberately: it is consumed only by ``_terminate_vfs_proc``, and
+without the underscore the API snapshot check reports it as an addition to this
+package's public surface, which a terminate timeout has no business joining.
+"""
+
 VFS_CACHE_REL_PATH_IN_SESSION = ".vfs_object_cache"
 VFS_MANIFEST_FOLDER_IN_SESSION = ".vfs_manifests"
 VFS_LOGS_FOLDER_IN_SESSION = ".vfs_logs"
@@ -106,16 +114,47 @@ class VFSProcessManager(object):
         :param os_user: the user running the job.
         """
         log.info("Terminating all VFS processes.")
+        pid_file_path = (session_dir / DEADLINE_VFS_PID_FILE_NAME).resolve()
         try:
-            pid_file_path = (session_dir / DEADLINE_VFS_PID_FILE_NAME).resolve()
             with open(pid_file_path, "r") as file:
-                for line in file.readlines():
-                    line = line.strip()
-                    mount_point, _, _ = line.split(":")
-                    cls.shutdown_libfuse_mount(mount_point, os_user, session_dir)
-            os.remove(pid_file_path)
+                lines = file.readlines()
         except FileNotFoundError:
             log.warning(f"VFS pid file not found at {pid_file_path}")
+            return
+
+        # Entries whose unmount failed are kept, so the file still names the mounts
+        # that are up rather than claiming all of them are down.
+        #
+        # Be honest about the limit of that here. This runs from
+        # AssetSync.cleanup_session, at the end of a session, and the caller removes
+        # session_dir afterwards -- so the entry this keeps is short-lived, and it is
+        # the log warning below, not the file, that a later actor can act on. The
+        # durable half of this fix is in kill_process_at_mount, which runs mid-session.
+        # Reporting the aggregate result out of this function would need a return type
+        # it does not have and a caller that reads it; see parked item 9.
+        still_mounted = []
+        for line in lines:
+            line = line.strip()
+            mount_point, _, _ = line.split(":")
+            if not cls.shutdown_libfuse_mount(mount_point, os_user, session_dir):
+                log.warning(f"Failed to shut down VFS at {mount_point}; keeping its pid entry")
+                still_mounted.append(line)
+
+        if still_mounted:
+            with open(pid_file_path, "w") as file:
+                for entry in still_mounted:
+                    file.write(f"{entry}\n")
+        else:
+            try:
+                os.remove(pid_file_path)
+            except FileNotFoundError:
+                # Reachable only if something else removed the file between the read
+                # above and here. Absorbed because it was absorbed before this
+                # function was restructured: the removal used to sit inside the same
+                # try as the read, under `except FileNotFoundError`. Letting it escape
+                # now would be a new failure mode out of cleanup_session, which
+                # catches only VFSExecutableMissingError.
+                log.warning(f"VFS pid file already removed at {pid_file_path}")
 
     @classmethod
     def get_shutdown_args(cls, mount_path: str, os_user: str):
@@ -128,12 +167,16 @@ class VFSProcessManager(object):
         if not os.path.exists(fusermount3_path):
             log.warning(f"fusermount3 not found at {cls.find_vfs_link_dir()}")
             return None
-        # find_system_command rather than system_command_path: this function's
-        # contract is Optional[list], and it already answers "a binary I need is
-        # missing" with a warning and None just above. Raising for sudo instead
-        # would be a second, undeclared failure mode on the same line of code --
-        # and it escapes into shutdown_libfuse_mount's cleanup path, whose only
-        # handling for this function is the None check.
+        # find_system_command rather than system_command_path: this function returns
+        # Optional[list], and it already answers "a binary I need is missing" with a
+        # warning and None just above. Raising for sudo instead would add another
+        # failure mode escaping into shutdown_libfuse_mount's cleanup path, whose
+        # only handling for this function is the None check.
+        #
+        # "another", not "a second": find_vfs_link_dir() above already raises
+        # VFSExecutableMissingError when the VFS executable itself is missing, so the
+        # three missing-binary cases here do not answer alike. That asymmetry predates
+        # the resolver and is deliberately left as it was rather than widened.
         sudo_path = _find_system_command("sudo")
         if sudo_path is None:
             log.warning("sudo not found in any trusted directory; cannot unmount as the job user")
@@ -160,10 +203,16 @@ class VFSProcessManager(object):
             return False
         try:
             run_result = subprocess.run(shutdown_args, check=True)
+            # Logged inside the try. Outside it, a non-zero fusermount3 reached this
+            # line with run_result unbound and raised UnboundLocalError, so this
+            # function could not report the failure it had just caught: the raise
+            # aborted kill_all_processes mid-loop, leaving later mounts unattempted,
+            # and escaped cleanup_session, which catches only
+            # VFSExecutableMissingError.
+            log.info(f"Shutdown returns {run_result.returncode}")
         except subprocess.CalledProcessError as e:
             log.warning(f"Shutdown failed with error {e}")
             # Don't reraise, check if mount is gone
-        log.info(f"Shutdown returns {run_result.returncode}")
         return cls.wait_for_mount(mount_path, session_dir, expected=False)
 
     @classmethod
@@ -175,33 +224,44 @@ class VFSProcessManager(object):
         :param session_dir: tmp directory for session
         :param mount_point: local directory to search for
         :param os_user: user to attempt shut down as
+
+        :returns: True only if the mount was found and its unmount succeeded.
         """
         if not cls.is_mount(mount_point):
             log.info(f"{mount_point} is not a mount, returning")
             return False
         log.info(f"Terminating deadline_vfs processes at {mount_point}.")
-        mount_point_found: bool = False
+        pid_file_path = (session_dir / DEADLINE_VFS_PID_FILE_NAME).resolve()
         try:
-            pid_file_path = (session_dir / DEADLINE_VFS_PID_FILE_NAME).resolve()
             with open(pid_file_path, "r") as file:
                 lines = file.readlines()
-            with open(pid_file_path, "w") as file:
-                for line in lines:
-                    line = line.strip()
-                    if mount_point_found:
-                        file.write(line)
-                    else:
-                        mount_for_pid, _, _ = line.split(":")
-                        if mount_for_pid == mount_point:
-                            cls.shutdown_libfuse_mount(mount_point, os_user, session_dir)
-                            mount_point_found = True
-                        else:
-                            file.write(line)
         except FileNotFoundError:
             log.warning(f"VFS pid file not found at {pid_file_path}")
             return False
 
-        return mount_point_found
+        mount_point_found: bool = False
+        shutdown_succeeded: bool = False
+        entries_to_keep = []
+        for line in lines:
+            line = line.strip()
+            mount_for_pid, _, _ = line.split(":")
+            if not mount_point_found and mount_for_pid == mount_point:
+                mount_point_found = True
+                shutdown_succeeded = cls.shutdown_libfuse_mount(mount_point, os_user, session_dir)
+                # The entry survives a failed unmount. Dropping it lost the record of
+                # a mount that is still up, and returning True then told the caller
+                # the process had been killed when it had not.
+                if not shutdown_succeeded:
+                    log.warning(f"Failed to shut down VFS at {mount_point}; keeping its pid entry")
+                    entries_to_keep.append(line)
+            else:
+                entries_to_keep.append(line)
+
+        with open(pid_file_path, "w") as file:
+            for entry in entries_to_keep:
+                file.write(f"{entry}\n")
+
+        return mount_point_found and shutdown_succeeded
 
     @classmethod
     def get_manifest_path_for_mount(cls, session_dir: Path, mount_point: str) -> Optional[Path]:
@@ -365,9 +425,15 @@ class VFSProcessManager(object):
         if self._asset_cache_path is not None:
             command += f" --cachedir={self._asset_cache_path}"
 
-        # The assembled command is deliberately not logged. It is built here and
-        # logged again by start(), so this line only ever duplicated that one, and
-        # the fields worth having are logged individually there.
+        # The assembled command is deliberately logged nowhere, here or in start().
+        #
+        # Be clear about the cost, because the per-field log in start() is not
+        # equivalent. The exposure documented above is unquoted interpolation into a
+        # shell=True string, and it manifests as bash re-splitting the command when a
+        # field contains a space or a metacharacter. In exactly that case the fields
+        # each read as well-formed while their concatenation was not, so the field log
+        # looks correct and the malformed string is unrecoverable from any record. A
+        # quoting failure therefore has to be reproduced rather than read off a log.
         return command
 
     @classmethod
@@ -540,6 +606,13 @@ class VFSProcessManager(object):
         self._run_path = session_dir
         log.info(f"Using run_path {self._run_path}")
         log.info(f"Using mount_point {self._mount_point}")
+        # Resolved here, before anything is launched, because it is needed *after*
+        # the launch: wait_for_mount() -> is_mount() runs findmnt. Resolving it there
+        # for the first time meant an unresolvable findmnt raised
+        # VFSExecutableMissingError with the VFS process already running -- and
+        # asset_sync treats that exception as permission to fall back to a copied
+        # download, so the copy would write the same root as a live, untracked mount.
+        self._resolve_or_raise("findmnt")
         self.set_manifest_owner()
         VFSProcessManager.create_mount_point(self._mount_point)
         start_command = self.build_launch_command(self._mount_point)
@@ -600,6 +673,15 @@ class VFSProcessManager(object):
 
         if not is_mounted:
             log.error("Failed to mount, shutting down")
+            # Terminated before raising, because the pid entry is written below this
+            # point and so does not exist yet. The log said "shutting down" while
+            # nothing shut anything down: the process launched above stayed alive with
+            # no record of it anywhere, and VFSFailedToMountError is caught nowhere in
+            # src/, so session cleanup later read a pid file with no entry for this
+            # mount and left the process running. wait_for_mount returning False is
+            # ordinary -- a slow first byte or a VFS that exited right after launch --
+            # not an exotic path.
+            self._terminate_vfs_proc()
             raise VFSFailedToMountError
 
         try:
@@ -620,6 +702,20 @@ class VFSProcessManager(object):
             # if the pid file doesn't exist, this will create it
             with open(pid_file_path, "a") as file:
                 file.write(f"{self._mount_point}:{self._vfs_proc.pid}:{self._manifest_path}")
+
+    def _terminate_vfs_proc(self) -> None:
+        """Terminate the VFS process this manager launched, best effort.
+
+        Best effort on purpose: it is called on a path that is already failing and
+        about to raise, so it must not replace that failure with one of its own.
+        """
+        if self._vfs_proc is None:
+            return
+        try:
+            self._vfs_proc.terminate()
+            self._vfs_proc.wait(timeout=_VFS_TERMINATE_WAIT_SECONDS)
+        except Exception:
+            log.exception(f"Could not terminate the VFS process at {self._mount_point}")
 
     def get_mount_point(self) -> Union[os.PathLike, str]:
         return self._mount_point

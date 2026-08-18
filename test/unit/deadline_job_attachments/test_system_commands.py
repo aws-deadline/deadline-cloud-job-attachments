@@ -247,12 +247,20 @@ class TestTrustedDirectories:
 
 @pytest.mark.skipif(sys.platform == "win32", reason="VFS doesn't currently support Windows")
 class TestGetShutdownArgsFailureContract:
-    """`get_shutdown_args` must answer a missing binary with None, not an exception.
+    """`get_shutdown_args` must answer a missing `sudo` with None, not an exception.
 
-    It is typed `Optional[list]` and already warns-and-returns-None for a missing
-    fusermount3. Its caller, `shutdown_libfuse_mount`, has no except clause for this
-    function -- only a falsy check -- so an exception here escapes the unmount
-    cleanup path instead of letting it fall through to `wait_for_mount`.
+    Scoped to `sudo` and `fusermount3` deliberately, because the general claim would
+    be false. `get_shutdown_args` has no return annotation, and its first statement
+    calls `find_vfs_link_dir()` -> `find_vfs()`, which raises
+    `VFSExecutableMissingError` when the VFS executable itself cannot be found. So
+    "the VFS binary is missing" already leaves this function as an exception while
+    the other two missing-binary cases return None. That asymmetry predates the
+    resolver and is left alone here; what this class pins is that resolving `sudo`
+    did not add a third answer.
+
+    Its caller, `shutdown_libfuse_mount`, has no except clause for this function --
+    only a falsy check -- so an exception here escapes the unmount cleanup path
+    instead of letting it fall through to `wait_for_mount`.
 
     Pinned because the obvious refactor (use the raising resolver everywhere, for
     consistency with the launch path) silently introduces that second failure mode.
