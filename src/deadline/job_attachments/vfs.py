@@ -330,6 +330,25 @@ class VFSProcessManager(object):
         Build command to pass to Popen to launch VFS
         :param mount_point: directory to mount which must be the first parameter seen by our executable
         :return: command
+
+        Scope note, so this is not mistaken for a safe-by-construction command.
+
+        Resolving ``sudo`` from a trusted directory fixes how *that one binary* is
+        located. It does not make the rest of this string safe. Every field after it
+        is interpolated unquoted into a string that ``start()`` hands to
+        ``subprocess.Popen`` with ``shell=True``, so a shell metacharacter in
+        ``mount_point``, ``_manifest_path``, ``_cas_prefix`` or ``_asset_cache_path``
+        is interpreted by ``/bin/bash`` in a command that runs under ``sudo``. Those
+        values come from the job and its queue configuration rather than from this
+        process, which makes that a wider exposure than the search-path one: it needs
+        only one odd character in a path, not influence over ``PATH``.
+
+        This predates the trusted-path resolution and is deliberately not addressed
+        here. Closing it means either passing an argv list and dropping ``shell=True``
+        (which removes the quoting question entirely, and keeps the resolved absolute
+        ``sudo`` path so the search-path property is preserved) or ``shlex.quote``-ing
+        each interpolated field. Both change launch mechanics rather than command
+        resolution.
         """
         executable = VFSProcessManager.find_vfs_launch_script()
 
