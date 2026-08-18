@@ -346,7 +346,6 @@ class VFSProcessManager(object):
         if self._asset_cache_path is not None:
             command += f" --cachedir={self._asset_cache_path}"
 
-        # codeql[py/clear-text-logging-sensitive-data]: see _system_commands
         log.info(f"Got launch command {command}")
         return command
 
@@ -524,7 +523,6 @@ class VFSProcessManager(object):
         VFSProcessManager.create_mount_point(self._mount_point)
         start_command = self.build_launch_command(self._mount_point)
         launch_env = self.get_launch_environ()
-        # codeql[py/clear-text-logging-sensitive-data]: see _system_commands
         log.info(f"Launching VFS with command {start_command}")
         log.info(f"Launching with environment {launch_env}")
         log.info(f"Launching as user {self._os_user}")
@@ -555,7 +553,6 @@ class VFSProcessManager(object):
             self._vfs_thread.start()
 
         except Exception as e:
-            # codeql[py/clear-text-logging-sensitive-data]: see _system_commands
             log.exception(f"Exception during launch with command {start_command} exception {e}")
             raise e
         log.info(f"Launched VFS as pid {self._vfs_proc.pid}")
