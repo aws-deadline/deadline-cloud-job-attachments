@@ -14,6 +14,7 @@ from deadline.job_attachments._utils import (
     WINDOWS_MAX_PATH_LENGTH,
     WINDOWS_UNC_DEVICE_PATH_STRING_PREFIX,
     WINDOWS_UNC_PATH_STRING_PREFIX,
+    _as_extended_length_path,
     _get_long_path_compatible_path,
     _normalize_windows_path,
     _is_relative_to,
@@ -289,6 +290,22 @@ class TestGetLongPathCompatiblePath:
         ):
             assert _get_long_path_compatible_path(path) == Path(path)
 
+    def test_relative_long_path_falls_through_to_plain(self):
+        r"""
+        Relative long paths must not raise: callers such as _FileStatCache._get_stat
+        and os_file_permission._change_permissions_for_windows catch only
+        (FileNotFoundError, PermissionError, OSError) from the subsequent filesystem
+        call and rely on the helper never raising. Turning that into a ValueError
+        would propagate uncaught. ".." rejection is intentional and kept; only the
+        "relative" branch of _as_extended_length_path is softened here.
+        """
+        path = "relative\\project\\" + ("a" * WINDOWS_MAX_PATH_LENGTH) + "\\scene.ma"
+
+        with patch.object(sys, "platform", "win32"), patch(
+            self._REGISTRY_CHECK, return_value=False
+        ):
+            assert _get_long_path_compatible_path(path) == Path(path)
+
     def test_network_path_keeps_leading_pair_through_normalization(self):
         r"""
         Normalizing must not eat the leading pair of backslashes on \\server\share.
@@ -399,6 +416,71 @@ class TestGetLongPathCompatiblePath:
         read as relative and compare unequal against its own normal form.
         """
         assert str(_normalize_windows_path(prefixed)) == expected
+
+
+class TestAsExtendedLengthPath:
+    r"""
+    Tests for _as_extended_length_path, the unconditional variant used for directory
+    walks. A walk ROOT can be well under MAX_PATH while paths yielded beneath it exceed
+    it, so `asset_sync._get_output_files` prefixes the root regardless of its length and
+    lets every yielded path inherit the prefix. Without it, in a process that is not
+    longPathAware, `stat()` on a yielded >260-char path fails with WinError 3 even when
+    the LongPathsEnabled registry value is set (the customer configuration in
+    deadline-cloud-worker-agent#520).
+    """
+
+    @pytest.mark.parametrize(
+        ("original", "expected"),
+        [
+            (r"C:\short\path", WINDOWS_UNC_PATH_STRING_PREFIX + r"C:\short\path"),
+            (
+                r"\\studio-nas\projects\assets",
+                WINDOWS_UNC_DEVICE_PATH_STRING_PREFIX + r"studio-nas\projects\assets",
+            ),
+            ("C:/mixed/separators", WINDOWS_UNC_PATH_STRING_PREFIX + r"C:\mixed\separators"),
+        ],
+        ids=["short-drive-letter", "network", "forward-slashes"],
+    )
+    def test_prefixes_regardless_of_length(self, original, expected):
+        """Short paths are prefixed too: the length gate belongs to the caller's
+        context (single file op) and is deliberately absent here (walk root)."""
+        with patch.object(sys, "platform", "win32"):
+            assert str(_as_extended_length_path(original)) == expected
+
+    def test_already_prefixed_is_unchanged(self):
+        prefixed = WINDOWS_UNC_PATH_STRING_PREFIX + r"C:\already\prefixed"
+        with patch.object(sys, "platform", "win32"):
+            assert str(_as_extended_length_path(prefixed)) == prefixed
+
+    @pytest.mark.parametrize("relative", [r"relative\path", r"C:relative\path"])
+    def test_relative_path_is_rejected(self, relative):
+        """The extended-length form is only defined for absolute paths."""
+        with patch.object(sys, "platform", "win32"):
+            with pytest.raises(ValueError, match="absolute path"):
+                _as_extended_length_path(relative)
+
+    def test_single_dot_segments_are_normalized(self):
+        with patch.object(sys, "platform", "win32"):
+            result = _as_extended_length_path(r"C:\projects\.\assets")
+
+        assert str(result) == WINDOWS_UNC_PATH_STRING_PREFIX + r"C:\projects\assets"
+
+    def test_dotdot_is_rejected(self):
+        with patch.object(sys, "platform", "win32"):
+            with pytest.raises(ValueError, match=r"\.\."):
+                _as_extended_length_path(r"C:\projects\..\assets")
+
+    def test_non_windows_is_unchanged(self):
+        with patch.object(sys, "platform", "linux"):
+            assert _as_extended_length_path("/aaa/bbb") == Path("/aaa/bbb")
+
+    def test_round_trips_through_normalize(self):
+        """_normalize_windows_path must invert this helper for both path shapes, since
+        the walk keeps plain forms for bookkeeping and prefixed forms for file ops."""
+        for original in (r"C:\projects\scene.aep", r"\\studio-nas\projects\scene.aep"):
+            with patch.object(sys, "platform", "win32"):
+                prefixed = _as_extended_length_path(original)
+            assert str(_normalize_windows_path(prefixed)) == original
 
 
 @pytest.mark.skipif(

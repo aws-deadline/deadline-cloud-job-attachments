@@ -142,6 +142,46 @@ def _is_windows_long_path_registry_enabled() -> bool:
     return bool(ntdll.RtlAreLongPathsEnabled())
 
 
+def _as_extended_length_path(original_path: Union[str, Path]) -> Path:
+    """
+    Return the extended-length form of an absolute Windows path regardless of its length.
+
+    This unconditional variant is for directory walks: a short walk root can contain
+    descendants over MAX_PATH, and prefixing the root makes every yielded path inherit
+    the prefix. Single-file operations should normally use
+    ``_get_long_path_compatible_path`` instead.
+
+    On non-Windows platforms and for already-prefixed paths, the input is unchanged.
+
+    :raises ValueError: if a Windows path is relative or contains a ".." component.
+    """
+    original_path_string = str(original_path)
+    if sys.platform != "win32" or original_path_string.startswith(WINDOWS_UNC_PATH_STRING_PREFIX):
+        return Path(original_path_string)
+
+    # Extended-length paths bypass Win32 normalization. Normalize safe components here,
+    # but reject "..": collapsing it lexically can target a different file than a prior
+    # symlink-aware containment check validated.
+    if _WINDOWS_PARENT_DIR_COMPONENT in PureWindowsPath(original_path_string).parts:
+        raise ValueError(
+            "Cannot build an extended-length path from a path containing '..': "
+            f"{original_path_string}. Resolve the path before passing it here."
+        )
+
+    # ntpath is required because tests exercise this Windows-only branch on POSIX hosts.
+    normalized = ntpath.normpath(original_path_string)
+    pure = PureWindowsPath(normalized)
+    if not pure.is_absolute():
+        raise ValueError(
+            "Cannot build an extended-length path from a relative path: "
+            f"{original_path_string}. Convert it to an absolute path first."
+        )
+
+    if pure.drive.startswith(WINDOWS_PATH_SEPARATOR * 2):
+        return Path(WINDOWS_UNC_DEVICE_PATH_STRING_PREFIX + normalized[2:])
+    return Path(WINDOWS_UNC_PATH_STRING_PREFIX + normalized)
+
+
 def _get_long_path_compatible_path(original_path: Union[str, Path]) -> Path:
     """
     Given a Path or string representing a path,
@@ -159,11 +199,18 @@ def _get_long_path_compatible_path(original_path: Union[str, Path]) -> Path:
     of dependent on a misleadingly named API, and the prefix is a no-op for a process
     that is already long path aware.
 
+    Relative long inputs fall through to the plain form rather than raising, so
+    callers that catch only OSError-family errors from the subsequent filesystem
+    call (e.g. _FileStatCache, os_file_permission._change_permissions_for_windows)
+    keep their pre-existing failure mode. ".." components are still rejected --
+    that check exists to prevent lexical collapse from bypassing an earlier
+    symlink-aware containment check, and cannot safely be relaxed here. Callers
+    with an absolute, symlink-resolved path should call ``_as_extended_length_path``
+    directly.
+
     :param original_path: Original unmodified path/string representing an absolute path.
     :return: A Path object representing the long path compatible path.
-    :raises ValueError: if a long Windows path contains a ".." component. See the comment
-        in the branch below -- collapsing it here could target a different file than the
-        caller validated.
+    :raises ValueError: if a long Windows path contains a ".." component.
     """
 
     original_path_string = str(original_path)
@@ -173,47 +220,9 @@ def _get_long_path_compatible_path(original_path: Union[str, Path]) -> Path:
     if (
         len(original_path_string) + TEMP_DOWNLOAD_ADDED_CHARS_LENGTH >= WINDOWS_MAX_PATH_LENGTH
         and not original_path_string.startswith(WINDOWS_UNC_PATH_STRING_PREFIX)
+        and PureWindowsPath(ntpath.normpath(original_path_string)).is_absolute()
     ):
-        # A prefixed path is handed to the filesystem verbatim, with the Win32
-        # normalization turned off, so it has to be normalized here instead.
-        #
-        # ".." is rejected rather than collapsed. Collapsing it lexically would be
-        # unsound: callers such as download_file validate the path first with
-        # symlink-aware resolution (_ensure_paths_within_directory -> Path.resolve())
-        # and only then pass it here, so a lexical collapse can produce a *different*
-        # target than the one that was validated whenever a component is a symlink --
-        # turning "manifest with .. fails loudly" into "manifest with .. may write
-        # outside the root". Resolving with Path.resolve() instead would touch the
-        # filesystem on a path that may not exist yet, so the safe option is to refuse.
-        #
-        # This does not regress the case that motivated normalizing: a literal ".."
-        # past the prefix was already rejected by the filesystem. It only replaces an
-        # opaque OSError with an explicit one.
-        if _WINDOWS_PARENT_DIR_COMPONENT in PureWindowsPath(original_path_string).parts:
-            raise ValueError(
-                "Cannot build a long-path-compatible path from a path containing '..': "
-                f"{original_path_string}. Resolve the path before passing it here -- "
-                "collapsing '..' here could silently target a different file than the "
-                "caller validated."
-            )
-
-        # ntpath.normpath rather than PureWindowsPath: both convert separators, but
-        # normpath also drops "." components, keeps the leading pair of backslashes on
-        # \\server\share, and is idempotent on paths that already carry the prefix.
-        #
-        # ntpath rather than os.path because this branch parses Windows paths on any
-        # host: it is exercised on POSIX by tests that patch sys.platform, where
-        # os.path is posixpath.
-        normalized = ntpath.normpath(original_path_string)
-        pure = PureWindowsPath(normalized)
-
-        if pure.drive.startswith(WINDOWS_PATH_SEPARATOR * 2):
-            # A network path (\\server\share) takes the \\?\UNC\ form, which replaces the
-            # leading pair of backslashes with the prefix. Prepending \\?\ verbatim would
-            # produce \\?\\\server\share, which Windows rejects.
-            return Path(WINDOWS_UNC_DEVICE_PATH_STRING_PREFIX + normalized[2:])
-
-        return Path(WINDOWS_UNC_PATH_STRING_PREFIX + normalized)
+        return _as_extended_length_path(original_path_string)
     return Path(original_path_string)
 
 

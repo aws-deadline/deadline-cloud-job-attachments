@@ -198,16 +198,21 @@ def probe_registry_alone_is_insufficient(work_dir: str, host_aware: bool) -> Non
     the registry setting on, and the \\?\ prefix is what fixes it.
 
     Skipped when the host *is* long path aware, since there is nothing to demonstrate.
+    Also skipped when the machine-wide setting is off: the premise it demonstrates is
+    "registry-on is not enough", which is meaningless if the registry itself is off.
+    The registry-off configuration is covered by the other probes, which exercise the
+    prefix as the sole path to working long-path access.
     """
     if host_aware:
         print("  (skipped: this host is long path aware, so plain long paths work)")
         return
 
-    check(
-        read_machine_registry_setting() == 1,
-        "This probe is only meaningful with the machine-wide LongPathsEnabled setting ON. "
-        "Set HKLM\\SYSTEM\\CurrentControlSet\\Control\\FileSystem\\LongPathsEnabled to 1.",
-    )
+    if read_machine_registry_setting() != 1:
+        print(
+            "  (skipped: LongPathsEnabled is off, so the registry-on-is-insufficient "
+            "premise does not apply here)"
+        )
+        return
 
     long_dir = build_long_dir(work_dir, "premise")
     try:
@@ -609,7 +614,19 @@ def main() -> int:
         help="Fail unless LongPathsEnabled is ON. The registry-on case is the one the "
         "pre-PR code got wrong, so a run meant to cover it must confirm it.",
     )
+    parser.add_argument(
+        "--require-registry-disabled",
+        action="store_true",
+        help="Fail unless LongPathsEnabled is OFF. Symmetric to --require-registry-enabled: "
+        "a run meant to cover the registry-off configuration must confirm the toggle took "
+        "effect and did not silently fall back to the runner default.",
+    )
     args = parser.parse_args()
+
+    if args.require_registry_enabled and args.require_registry_disabled:
+        parser.error(
+            "--require-registry-enabled and --require-registry-disabled are mutually exclusive."
+        )
 
     if sys.platform != "win32":
         print("This probe only does anything on Windows. Nothing to do.")
@@ -626,6 +643,13 @@ def main() -> int:
         print(
             f"FAIL: --require-registry-enabled was passed but the machine-wide "
             f"LongPathsEnabled setting is {registry_value!r}, not 1.",
+            file=sys.stderr,
+        )
+        return 2
+    if args.require_registry_disabled and registry_value == 1:
+        print(
+            f"FAIL: --require-registry-disabled was passed but the machine-wide "
+            f"LongPathsEnabled setting is {registry_value!r}, not 0 or unset.",
             file=sys.stderr,
         )
         return 2
