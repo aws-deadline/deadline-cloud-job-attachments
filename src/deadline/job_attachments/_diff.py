@@ -6,6 +6,7 @@ import os
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from math import trunc
+from deadline.job_attachments._utils import _get_long_path_compatible_path
 from deadline.job_attachments.exceptions import NonValidInputError
 from deadline.job_attachments.asset_manifests.base_manifest import (
     BaseAssetManifest,
@@ -149,7 +150,11 @@ def _fast_file_list_to_manifest_diff(
         # Get the file's time stamp and size. We want to compare both.
         # From enabling CRT, sometimes timestamp update can fail.
         local_file_path = Path(local_file)
-        file_stat = local_file_path.stat()
+        # Re-apply the extended-length prefix around the stat: _glob._glob_paths returns
+        # plain-form paths so downstream containment / manifest-key logic keeps working,
+        # so callers that stat them must prefix per file. Without this, a walk that
+        # succeeded on a non-longPathAware host would fail here with WinError 3.
+        file_stat = _get_long_path_compatible_path(local_file_path).stat()
 
         # Compare the glob against the relative path we store in the manifest.
         # Save it to a list so we can look for deleted files.

@@ -30,6 +30,8 @@ on:
     branches: [ mainline, release, 'patch_*', 'feature_*' ]
     paths:
       - 'src/deadline/job_attachments/_utils.py'
+      - 'src/deadline/job_attachments/_glob.py'
+      - 'src/deadline/job_attachments/_diff.py'
       - 'src/deadline/job_attachments/download.py'
       - 'src/deadline/job_attachments/upload.py'
       - 'src/deadline/job_attachments/api/**'
