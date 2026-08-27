@@ -1,0 +1,2041 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://aws-deadline.github.io/deadline-cloud-job-attachments/code_reference/job_attachments_upload/">
+      
+      
+        <link rel="prev" href="../job_attachments_progress_tracker/">
+      
+      
+        <link rel="next" href="../job_attachments_vfs/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>upload - AWS Deadline Cloud - Job Attachments Documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../../extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#deadline.job_attachments.upload.S3AssetManager" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="AWS Deadline Cloud - Job Attachments Documentation" class="md-header__button md-logo" aria-label="AWS Deadline Cloud - Job Attachments Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AWS Deadline Cloud - Job Attachments Documentation
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              upload
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/aws-deadline/deadline-cloud-job-attachments" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    aws-deadline/deadline-cloud-job-attachments
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="AWS Deadline Cloud - Job Attachments Documentation" class="md-nav__button md-logo" aria-label="AWS Deadline Cloud - Job Attachments Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    AWS Deadline Cloud - Job Attachments Documentation
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/aws-deadline/deadline-cloud-job-attachments" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    aws-deadline/deadline-cloud-job-attachments
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Library Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Library Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_1" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2_1" id="__nav_2_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    deadline.job_attachments
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_1_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    deadline.job_attachments
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../job_attachments_api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    api
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../job_attachments_asset_manifests/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    asset_manifests
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../job_attachments_asset_sync/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    asset_sync
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../job_attachments_caches/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    caches
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../job_attachments_download/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    download
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../job_attachments_exceptions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    exceptions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../job_attachments_models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../job_attachments_os_file_permission/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    os_file_permission
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../job_attachments_progress_tracker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    progress_tracker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    upload
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    upload
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#deadline.job_attachments.upload.S3AssetManager" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        S3AssetManager
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="S3AssetManager">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#deadline.job_attachments.upload.S3AssetManager.hash_assets_and_create_manifest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        hash_assets_and_create_manifest
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deadline.job_attachments.upload.S3AssetManager.prepare_paths_for_upload" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        prepare_paths_for_upload
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deadline.job_attachments.upload.S3AssetManager.snapshot_assets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        snapshot_assets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deadline.job_attachments.upload.S3AssetManager.upload_assets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        upload_assets
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deadline.job_attachments.upload.S3AssetUploader" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        S3AssetUploader
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="S3AssetUploader">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#deadline.job_attachments.upload.S3AssetUploader.file_already_uploaded" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        file_already_uploaded
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deadline.job_attachments.upload.S3AssetUploader.reset_s3_check_cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        reset_s3_check_cache
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deadline.job_attachments.upload.S3AssetUploader.upload_assets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        upload_assets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deadline.job_attachments.upload.S3AssetUploader.upload_file_to_s3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        upload_file_to_s3
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deadline.job_attachments.upload.S3AssetUploader.upload_input_files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        upload_input_files
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deadline.job_attachments.upload.S3AssetUploader.upload_object_to_cas" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        upload_object_to_cas
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deadline.job_attachments.upload.S3AssetUploader.verify_hash_cache_integrity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        verify_hash_cache_integrity
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../job_attachments_vfs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    vfs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#deadline.job_attachments.upload.S3AssetManager" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        S3AssetManager
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="S3AssetManager">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#deadline.job_attachments.upload.S3AssetManager.hash_assets_and_create_manifest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        hash_assets_and_create_manifest
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deadline.job_attachments.upload.S3AssetManager.prepare_paths_for_upload" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        prepare_paths_for_upload
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deadline.job_attachments.upload.S3AssetManager.snapshot_assets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        snapshot_assets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deadline.job_attachments.upload.S3AssetManager.upload_assets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        upload_assets
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deadline.job_attachments.upload.S3AssetUploader" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        S3AssetUploader
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="S3AssetUploader">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#deadline.job_attachments.upload.S3AssetUploader.file_already_uploaded" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        file_already_uploaded
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deadline.job_attachments.upload.S3AssetUploader.reset_s3_check_cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        reset_s3_check_cache
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deadline.job_attachments.upload.S3AssetUploader.upload_assets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        upload_assets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deadline.job_attachments.upload.S3AssetUploader.upload_file_to_s3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        upload_file_to_s3
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deadline.job_attachments.upload.S3AssetUploader.upload_input_files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        upload_input_files
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deadline.job_attachments.upload.S3AssetUploader.upload_object_to_cas" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        upload_object_to_cas
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deadline.job_attachments.upload.S3AssetUploader.verify_hash_cache_integrity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        verify_hash_cache_integrity
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+  <h1>upload</h1>
+
+<div class="doc doc-object doc-module">
+
+
+
+
+    <div class="doc doc-contents first">
+
+        <p>Classes for handling uploading of assets.</p>
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h4 id="deadline.job_attachments.upload.S3AssetManager" class="doc doc-heading">
+            <code>S3AssetManager</code>
+
+
+<a href="#deadline.job_attachments.upload.S3AssetManager" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+
+
+        <p>Asset handler that creates an asset manifest and uploads assets. Based on an S3 file system.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="deadline.job_attachments.upload.S3AssetManager.hash_assets_and_create_manifest" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">hash_assets_and_create_manifest</span><span class="p">(</span><span class="n">asset_groups</span><span class="p">,</span> <span class="n">total_input_files</span><span class="p">,</span> <span class="n">total_input_bytes</span><span class="p">,</span> <span class="n">hash_cache_dir</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">on_preparing_to_submit</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+<a href="#deadline.job_attachments.upload.S3AssetManager.hash_assets_and_create_manifest" class="headerlink" title="Permanent link">&para;</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Computes the hashes for input files, and creates manifests using the local hash cache.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>hash_cache_dir</code>
+            </td>
+            <td>
+                  <code><span title="typing.Optional">Optional</span>[<span title="str">str</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>a path to local hash cache directory. If it's None, use default path.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>on_preparing_to_submit</code>
+            </td>
+            <td>
+                  <code><span title="typing.Optional">Optional</span>[<span title="typing.Callable">Callable</span>[[<span title="typing.Any">Any</span>], <span title="bool">bool</span>]]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>a callback to be called to periodically report progress to the caller.
+The callback returns True if the operation should continue as normal, or False to cancel.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="SummaryStatistics
+
+
+  
+      dataclass
+   (deadline.job_attachments.progress_tracker.SummaryStatistics)" href="../job_attachments_progress_tracker/#deadline.job_attachments.progress_tracker.SummaryStatistics">SummaryStatistics</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>a tuple with (1) the summary statistics of the hash operation, and</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="list">list</span>[<a class="autorefs autorefs-internal" title="AssetRootManifest
+
+
+  
+      dataclass
+   (deadline.job_attachments.models.AssetRootManifest)" href="../job_attachments_models/#deadline.job_attachments.models.AssetRootManifest">AssetRootManifest</a>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>(2) a list of AssetRootManifest (a manifest and output paths for each asset root).</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="deadline.job_attachments.upload.S3AssetManager.prepare_paths_for_upload" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">prepare_paths_for_upload</span><span class="p">(</span><span class="n">input_paths</span><span class="p">,</span> <span class="n">output_paths</span><span class="p">,</span> <span class="n">referenced_paths</span><span class="p">,</span> <span class="n">storage_profile</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">require_paths_exist</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span></code>
+
+<a href="#deadline.job_attachments.upload.S3AssetManager.prepare_paths_for_upload" class="headerlink" title="Permanent link">&para;</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Processes all of the paths required for upload, grouping them by asset root and local storage profile locations.
+Returns an object containing the grouped paths, which also includes a dictionary of input directories and file counts
+for files that were not under the root path or any local storage profile locations.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="deadline.job_attachments.upload.S3AssetManager.snapshot_assets" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">snapshot_assets</span><span class="p">(</span><span class="n">snapshot_dir</span><span class="p">,</span> <span class="n">manifests</span><span class="p">,</span> <span class="n">on_snapshotting_assets</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+<a href="#deadline.job_attachments.upload.S3AssetManager.snapshot_assets" class="headerlink" title="Permanent link">&para;</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Copies all the files for provided manifests and manifests themselves into a snapshot directory
+that matches the layout of a job attachments prefix in S3.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>snapshot_dir</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>A directory in which to place the snapshot. Data and manifest files will go in Data
+    and Manifest subdirectories, respectively.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>manifests</code>
+            </td>
+            <td>
+                  <code><span title="list">list</span>[<a class="autorefs autorefs-internal" title="AssetRootManifest
+
+
+  
+      dataclass
+   (deadline.job_attachments.models.AssetRootManifest)" href="../job_attachments_models/#deadline.job_attachments.models.AssetRootManifest">AssetRootManifest</a>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>A list of manifests that contain assets to be uploaded</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>on_snapshotting_assets</code>
+            </td>
+            <td>
+                  <code><span title="typing.Optional">Optional</span>[<span title="typing.Callable">Callable</span>[[<span title="typing.Any">Any</span>], <span title="bool">bool</span>]]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>A callback to be called to periodically report progress to the caller.
+    The callback must return True if the operation should continue as normal, or False to cancel.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="SummaryStatistics
+
+
+  
+      dataclass
+   (deadline.job_attachments.progress_tracker.SummaryStatistics)" href="../job_attachments_progress_tracker/#deadline.job_attachments.progress_tracker.SummaryStatistics">SummaryStatistics</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>a tuple with (1) the summary statistics of the upload operation, and</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="Attachments
+
+
+  
+      dataclass
+   (deadline.job_attachments.models.Attachments)" href="../job_attachments_models/#deadline.job_attachments.models.Attachments">Attachments</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>(2) the S3 path to the asset manifest file.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="deadline.job_attachments.upload.S3AssetManager.upload_assets" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">upload_assets</span><span class="p">(</span><span class="n">manifests</span><span class="p">,</span> <span class="n">on_uploading_assets</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">s3_check_cache_dir</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">manifest_write_dir</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">force_s3_check</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+<a href="#deadline.job_attachments.upload.S3AssetManager.upload_assets" class="headerlink" title="Permanent link">&para;</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Uploads all the files for provided manifests and manifests themselves to S3.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>manifests</code>
+            </td>
+            <td>
+                  <code><span title="list">list</span>[<a class="autorefs autorefs-internal" title="AssetRootManifest
+
+
+  
+      dataclass
+   (deadline.job_attachments.models.AssetRootManifest)" href="../job_attachments_models/#deadline.job_attachments.models.AssetRootManifest">AssetRootManifest</a>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>a list of manifests that contain assets to be uploaded</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>on_uploading_assets</code>
+            </td>
+            <td>
+                  <code><span title="typing.Optional">Optional</span>[<span title="typing.Callable">Callable</span>[[<span title="typing.Any">Any</span>], <span title="bool">bool</span>]]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>a callback to be called to periodically report progress to the caller.
+The callback returns True if the operation should continue as normal, or False to cancel.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>force_s3_check</code>
+            </td>
+            <td>
+                  <code><span title="typing.Optional">Optional</span>[<span title="bool">bool</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Controls S3 verification behavior:
+- True: Skip the S3 check cache, always check whether uploads are already in S3.
+- False/None: Use the S3 check cache, with periodic integrity sampling against S3 (default)</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="SummaryStatistics
+
+
+  
+      dataclass
+   (deadline.job_attachments.progress_tracker.SummaryStatistics)" href="../job_attachments_progress_tracker/#deadline.job_attachments.progress_tracker.SummaryStatistics">SummaryStatistics</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>a tuple with (1) the summary statistics of the upload operation, and</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="Attachments
+
+
+  
+      dataclass
+   (deadline.job_attachments.models.Attachments)" href="../job_attachments_models/#deadline.job_attachments.models.Attachments">Attachments</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>(2) the S3 path to the asset manifest file.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h4 id="deadline.job_attachments.upload.S3AssetUploader" class="doc doc-heading">
+            <code>S3AssetUploader</code>
+
+
+<a href="#deadline.job_attachments.upload.S3AssetUploader" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+
+
+        <p>Handler for uploading assets to S3 based off of an Asset Manifest. If no session is provided the default
+credentials path will be used, see
+https://boto3.amazonaws.com/v1/documentation/api/latest/guide/credentials.html#configuring-credentials</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="deadline.job_attachments.upload.S3AssetUploader.file_already_uploaded" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">file_already_uploaded</span><span class="p">(</span><span class="n">bucket</span><span class="p">,</span> <span class="n">key</span><span class="p">)</span></code>
+
+<a href="#deadline.job_attachments.upload.S3AssetUploader.file_already_uploaded" class="headerlink" title="Permanent link">&para;</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Check whether the file has already been uploaded by doing a head-object call.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="deadline.job_attachments.upload.S3AssetUploader.reset_s3_check_cache" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">reset_s3_check_cache</span><span class="p">(</span><span class="n">s3_check_cache_dir</span><span class="p">)</span></code>
+
+<a href="#deadline.job_attachments.upload.S3AssetUploader.reset_s3_check_cache" class="headerlink" title="Permanent link">&para;</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Resets the S3 check cache by removing the cache altogether.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="deadline.job_attachments.upload.S3AssetUploader.upload_assets" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">upload_assets</span><span class="p">(</span><span class="n">job_attachment_settings</span><span class="p">,</span> <span class="n">manifest</span><span class="p">,</span> <span class="n">source_root</span><span class="p">,</span> <span class="n">partial_manifest_prefix</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">file_system_location_name</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">progress_tracker</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">s3_check_cache_dir</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">manifest_write_dir</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">manifest_name_suffix</span><span class="o">=</span><span class="s1">'input'</span><span class="p">,</span> <span class="n">manifest_metadata</span><span class="o">=</span><span class="nb">dict</span><span class="p">(),</span> <span class="n">manifest_file_name</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">asset_root</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">force_s3_check</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+<a href="#deadline.job_attachments.upload.S3AssetUploader.upload_assets" class="headerlink" title="Permanent link">&para;</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Uploads assets based off of an asset manifest, uploads the asset manifest.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>manifest</code>
+            </td>
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="BaseAssetManifest
+
+
+  
+      dataclass
+   (deadline.job_attachments.asset_manifests.BaseAssetManifest)" href="../job_attachments_asset_manifests/#deadline.job_attachments.asset_manifests.BaseAssetManifest">BaseAssetManifest</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The asset manifest to upload.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>partial_manifest_prefix</code>
+            </td>
+            <td>
+                  <code><span title="typing.Optional">Optional</span>[<span title="str">str</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The (partial) key prefix to use for uploading the manifest
+ to S3, excluding the initial section "<root-prefix>/Manifest/".
+e.g. "farm-1234/queue-1234/Inputs/<some-guid>"</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>source_root</code>
+            </td>
+            <td>
+                  <code><span title="pathlib.Path">Path</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The local root path of the assets.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>job_attachment_settings</code>
+            </td>
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="JobAttachmentS3Settings
+
+
+  
+      dataclass
+   (deadline.job_attachments.models.JobAttachmentS3Settings)" href="../job_attachments_models/#deadline.job_attachments.models.JobAttachmentS3Settings">JobAttachmentS3Settings</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The settings for the job attachment configured in Queue.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>progress_tracker</code>
+            </td>
+            <td>
+                  <code><span title="typing.Optional">Optional</span>[<a class="autorefs autorefs-internal" title="ProgressTracker
+
+
+  
+      dataclass
+   (deadline.job_attachments.progress_tracker.ProgressTracker)" href="../job_attachments_progress_tracker/#deadline.job_attachments.progress_tracker.ProgressTracker">ProgressTracker</a>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Optional progress tracker to track progress.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>manifest_name_suffix</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Suffix for given manifest naming.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;input&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>manifest_metadata</code>
+            </td>
+            <td>
+                  <code><span title="dict">dict</span>[<span title="str">str</span>, <span title="dict">dict</span>[<span title="str">str</span>, <span title="str">str</span>]]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>File metadata for given manifest to be uploaded.</p>
+              </div>
+            </td>
+            <td>
+                  <code><span title="dict">dict</span>()</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>manifest_file_name</code>
+            </td>
+            <td>
+                  <code><span title="typing.Optional">Optional</span>[<span title="str">str</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Optional file name for given manifest to be uploaded, otherwise use default name.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>asset_root</code>
+            </td>
+            <td>
+                  <code><span title="typing.Optional">Optional</span>[<span title="pathlib.Path">Path</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The root in which asset actually in to facilitate path mapping.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>force_s3_check</code>
+            </td>
+            <td>
+                  <code><span title="typing.Optional">Optional</span>[<span title="bool">bool</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Controls S3 verification behavior:
+- True: Skip the S3 check cache, always check whether uploads are already in S3.
+- False/None: Use the S3 check cache, with periodic integrity sampling against S3 (default)</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="tuple">tuple</span>[<span title="str">str</span>, <span title="str">str</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>A tuple of (the partial key for the manifest on S3, the hash of input manifest).</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="deadline.job_attachments.upload.S3AssetUploader.upload_file_to_s3" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">upload_file_to_s3</span><span class="p">(</span><span class="n">local_path</span><span class="p">,</span> <span class="n">s3_bucket</span><span class="p">,</span> <span class="n">s3_upload_key</span><span class="p">,</span> <span class="n">progress_tracker</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">base_dir_path</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+<a href="#deadline.job_attachments.upload.S3AssetUploader.upload_file_to_s3" class="headerlink" title="Permanent link">&para;</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Uploads a single file to an S3 bucket using TransferManager, allowing mid-way
+cancellation. It monitors for upload progress through a callback, <code>handler</code>,
+which also checks if the upload should continue or not. If the <code>progress_tracker</code>
+signals to stop, the ongoing upload is cancelled.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="deadline.job_attachments.upload.S3AssetUploader.upload_input_files" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">upload_input_files</span><span class="p">(</span><span class="n">manifest</span><span class="p">,</span> <span class="n">s3_bucket</span><span class="p">,</span> <span class="n">source_root</span><span class="p">,</span> <span class="n">s3_cas_prefix</span><span class="p">,</span> <span class="n">progress_tracker</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">s3_check_cache_dir</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">force_s3_check</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+<a href="#deadline.job_attachments.upload.S3AssetUploader.upload_input_files" class="headerlink" title="Permanent link">&para;</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Uploads all of the files listed in the given manifest to S3 if they don't exist in the
+given S3 prefix already.</p>
+<p>The local 'S3 check cache' is used to note if we've seen an object in S3 before so we
+can save the S3 API calls.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="deadline.job_attachments.upload.S3AssetUploader.upload_object_to_cas" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">upload_object_to_cas</span><span class="p">(</span><span class="n">file</span><span class="p">,</span> <span class="n">hash_algorithm</span><span class="p">,</span> <span class="n">s3_bucket</span><span class="p">,</span> <span class="n">source_root</span><span class="p">,</span> <span class="n">s3_cas_prefix</span><span class="p">,</span> <span class="n">s3_check_cache</span><span class="p">,</span> <span class="n">progress_tracker</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">force_s3_check</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+<a href="#deadline.job_attachments.upload.S3AssetUploader.upload_object_to_cas" class="headerlink" title="Permanent link">&para;</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Uploads an object to the S3 content-addressable storage (CAS) prefix. Optionally,
+does a head-object check and only uploads the file if it doesn't exist in S3 already.
+Returns a tuple (whether it has been uploaded, the file size).</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>force_s3_check</code>
+            </td>
+            <td>
+                  <code><span title="typing.Optional">Optional</span>[<span title="bool">bool</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Controls S3 verification behavior:
+- True: Skip the S3 check cache, always check whether uploads are already in S3.
+- False/None: Use the S3 check cache, with periodic integrity sampling against S3 (default)</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h5 id="deadline.job_attachments.upload.S3AssetUploader.verify_hash_cache_integrity" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">verify_hash_cache_integrity</span><span class="p">(</span><span class="n">s3_check_cache_dir</span><span class="p">,</span> <span class="n">manifest</span><span class="p">,</span> <span class="n">s3_cas_prefix</span><span class="p">,</span> <span class="n">s3_bucket</span><span class="p">)</span></code>
+
+<a href="#deadline.job_attachments.upload.S3AssetUploader.verify_hash_cache_integrity" class="headerlink" title="Permanent link">&para;</a></h5>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Inspects a sampling of the assets provided in manifest that are present in the S3 check cache and
+verifies if the cached assets exist in S3. Returns True if all sampled cached assets exist in S3, False
+otherwise.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+    </div>
+  
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.expand", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
