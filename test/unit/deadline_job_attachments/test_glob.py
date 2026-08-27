@@ -1,6 +1,8 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 
 import os
+import sys
+from deadline.job_attachments._utils import WINDOWS_UNC_PATH_STRING_PREFIX
 from deadline.job_attachments.exceptions import NonValidInputError
 import pytest
 from typing import List
@@ -121,3 +123,60 @@ def test_glob_path_exclude_nonexistent(test_glob_folder: str):
 
     # There are 2 files
     assert len(globbed_files) == 4
+
+
+class TestGlobPathsWalkPrefix:
+    """
+    Pins the walk-root prefixing added to fix the silent-empty-manifest failure on
+    non-longPathAware hosts: the walk must go through the \\\\?\\ form so glob.glob can
+    descend past MAX_PATH, and returned paths must be plain so downstream callers keep
+    them as manifest keys and containment inputs and re-apply the prefix per file.
+
+    Uses a mocked glob so the test does not depend on the host's actual long-path
+    support -- the string construction is what is being pinned here.
+    """
+
+    @pytest.mark.skipif(sys.platform != "win32", reason="Windows walk-root prefixing")
+    def test_walk_root_is_prefixed_and_returned_paths_are_plain(self, monkeypatch, tmp_path):
+        seen_patterns: List[str] = []
+
+        def fake_glob(pattern: str, recursive: bool = False) -> List[str]:
+            seen_patterns.append(pattern)
+            # Model what glob actually yields under a prefixed walk root: paths that
+            # carry the same prefix. Anything before "**" is the walked base.
+            base = pattern.split("**")[0].rstrip("\\/")
+            return [base + os.sep + "asset.txt"]
+
+        monkeypatch.setattr("deadline.job_attachments._glob.glob.glob", fake_glob)
+        monkeypatch.setattr("deadline.job_attachments._glob.os.path.isfile", lambda p: True)
+
+        result = _glob_paths(str(tmp_path))
+
+        assert seen_patterns, "glob.glob was not called"
+        assert all(p.startswith(WINDOWS_UNC_PATH_STRING_PREFIX) for p in seen_patterns), (
+            f"walk root not prefixed: {seen_patterns!r}"
+        )
+        for path in result:
+            assert not path.startswith(WINDOWS_UNC_PATH_STRING_PREFIX), (
+                f"returned path still carries the prefix: {path!r}"
+            )
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX sanity: no prefixing")
+    def test_walk_and_returned_paths_are_untouched_on_posix(self, monkeypatch, tmp_path):
+        seen_patterns: List[str] = []
+
+        def fake_glob(pattern: str, recursive: bool = False) -> List[str]:
+            seen_patterns.append(pattern)
+            base = pattern.split("**")[0].rstrip("/")
+            return [base + "/asset.txt"]
+
+        monkeypatch.setattr("deadline.job_attachments._glob.glob.glob", fake_glob)
+        monkeypatch.setattr("deadline.job_attachments._glob.os.path.isfile", lambda p: True)
+
+        result = _glob_paths(str(tmp_path))
+
+        assert seen_patterns, "glob.glob was not called"
+        # POSIX must not touch the Windows prefix machinery on either side.
+        assert all("\\\\?\\" not in p for p in seen_patterns)
+        for path in result:
+            assert "\\\\?\\" not in path

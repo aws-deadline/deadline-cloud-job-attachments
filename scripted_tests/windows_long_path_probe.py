@@ -198,16 +198,21 @@ def probe_registry_alone_is_insufficient(work_dir: str, host_aware: bool) -> Non
     the registry setting on, and the \\?\ prefix is what fixes it.
 
     Skipped when the host *is* long path aware, since there is nothing to demonstrate.
+    Also skipped when the machine-wide setting is off: the premise it demonstrates is
+    "registry-on is not enough", which is meaningless if the registry itself is off.
+    The registry-off configuration is covered by the other probes, which exercise the
+    prefix as the sole path to working long-path access.
     """
     if host_aware:
         print("  (skipped: this host is long path aware, so plain long paths work)")
         return
 
-    check(
-        read_machine_registry_setting() == 1,
-        "This probe is only meaningful with the machine-wide LongPathsEnabled setting ON. "
-        "Set HKLM\\SYSTEM\\CurrentControlSet\\Control\\FileSystem\\LongPathsEnabled to 1.",
-    )
+    if read_machine_registry_setting() != 1:
+        print(
+            "  (skipped: LongPathsEnabled is off, so the registry-on-is-insufficient "
+            "premise does not apply here)"
+        )
+        return
 
     long_dir = build_long_dir(work_dir, "premise")
     try:
@@ -391,6 +396,111 @@ def probe_normalize_round_trip(work_dir: str, unc_root: Optional[str]) -> None:
             print(f"  [{label}] prefix round-trips and containment holds")
         finally:
             rmtree_long(long_dir)
+
+
+def probe_manifest_snapshot_long_root(work_dir: str) -> None:
+    r"""
+    Live-path walk: `_manifest_snapshot` -> `_glob._glob_paths(root, ...)` -> `glob.glob`
+    on the plain form. `_glob_paths` absolutizes `root` but never applies the \\?\ prefix,
+    so on a non-longPathAware host a walk over a root at or past MAX_PATH yields no files.
+    `_manifest_snapshot` then returns None (empty manifest -> None), i.e. a task that reports
+    success while capturing zero outputs.
+
+    Not a hypothetical: `attachment_upload.py` is the worker's live output-sync entry point,
+    and it goes through `_manifest_snapshot` -> `_glob_paths`. AssetSync.sync_outputs (which
+    an earlier revision of this PR patched) is deprecated and has no live callers.
+    """
+    long_dir = build_long_dir(work_dir, "long-root")
+    destination = os.path.join(work_dir, "long-root-dest")
+    try:
+        # File written with the explicit prefix, so setup itself never depends on the
+        # capability being measured.
+        asset_file = os.path.join(long_dir, "asset.txt")
+        with open(_prefix_for_setup(asset_file), "w") as fh:
+            fh.write("scene data")
+
+        os.makedirs(destination, exist_ok=True)
+
+        snapshot: Optional[ManifestSnapshot] = _manifest_snapshot(
+            root=long_dir, destination=destination, name="probe"
+        )
+        check(
+            snapshot is not None,
+            f"_manifest_snapshot returned None for a long root that contains one real "
+            f"file. The walk silently found nothing (root length: {len(long_dir)} chars). "
+            f"This is the output-sync-reports-success-but-uploads-nothing failure mode.",
+        )
+        assert snapshot is not None  # for mypy
+
+        manifests = _read_manifests([snapshot.manifest])
+        check(
+            len(manifests) == 1,
+            f"Expected to read back the one manifest just written, got {len(manifests)}",
+        )
+        recorded = [p.path for p in next(iter(manifests.values())).paths]
+        check(
+            any(p.endswith("asset.txt") for p in recorded),
+            f"Manifest did not list the asset under a {len(long_dir)}-char root; "
+            f"paths={recorded!r}. The walk did not see the file.",
+        )
+
+        print(f"  captured a file under a {len(long_dir)}-char root")
+    finally:
+        rmtree_long(long_dir)
+        shutil.rmtree(destination, ignore_errors=True)
+
+
+def probe_manifest_snapshot_long_root_with_diff(work_dir: str) -> None:
+    r"""
+    Live-path diff branch: `_manifest_snapshot(..., diff=<base_manifest>)` skips the full
+    hash pass and enters `_fast_file_list_to_manifest_diff`, which per-file `stat()`s the
+    walked results. Without prefixing that stat, the walk succeeds (thanks to the
+    `_glob_paths` fix) but the subsequent `stat()` raises WinError 3 on a
+    non-longPathAware host -- moving the failure one step later without actually
+    resolving it.
+
+    Not a hypothetical: worker-agent's `attachment_upload.py` merges input manifests and
+    passes the merged form as `diff=` to `_manifest_snapshot`, so the diff branch is the
+    default in the live worker path.
+    """
+    long_dir = build_long_dir(work_dir, "diff-root")
+    destination = os.path.join(work_dir, "diff-root-dest")
+    base_dest = os.path.join(work_dir, "diff-root-base")
+    try:
+        # Deep file, written with an explicit prefix so setup does not depend on the
+        # capability being measured.
+        asset_file = os.path.join(long_dir, "asset.txt")
+        with open(_prefix_for_setup(asset_file), "w") as fh:
+            fh.write("scene data")
+
+        os.makedirs(destination, exist_ok=True)
+        os.makedirs(base_dest, exist_ok=True)
+
+        # Baseline snapshot (no diff) -- this is what a prior sync would have captured.
+        base_snap = _manifest_snapshot(root=long_dir, destination=base_dest, name="base")
+        check(base_snap is not None, "base snapshot returned None; walk did not see the file")
+        assert base_snap is not None  # for mypy
+
+        # Modify the file so the diff run has to stat it to detect the change.
+        with open(_prefix_for_setup(asset_file), "w") as fh:
+            fh.write("scene data v2")
+
+        # This is the call that enters _fast_file_list_to_manifest_diff and stats every
+        # walked file. Any plain-form stat here fails on a non-longPathAware host.
+        snapshot = _manifest_snapshot(
+            root=long_dir, destination=destination, name="probe", diff=base_snap.manifest
+        )
+        check(
+            snapshot is not None,
+            f"_manifest_snapshot(diff=...) returned None for a modified file under a "
+            f"{len(long_dir)}-char root. The fast-diff stat did not see the change.",
+        )
+
+        print(f"  fast-diff stat'd a modified file under a {len(long_dir)}-char root")
+    finally:
+        rmtree_long(long_dir)
+        shutil.rmtree(destination, ignore_errors=True)
+        shutil.rmtree(base_dest, ignore_errors=True)
 
 
 def probe_manifest_snapshot_long_destination(work_dir: str) -> None:
@@ -609,7 +719,19 @@ def main() -> int:
         help="Fail unless LongPathsEnabled is ON. The registry-on case is the one the "
         "pre-PR code got wrong, so a run meant to cover it must confirm it.",
     )
+    parser.add_argument(
+        "--require-registry-disabled",
+        action="store_true",
+        help="Fail unless LongPathsEnabled is OFF. Symmetric to --require-registry-enabled: "
+        "a run meant to cover the registry-off configuration must confirm the toggle took "
+        "effect and did not silently fall back to the runner default.",
+    )
     args = parser.parse_args()
+
+    if args.require_registry_enabled and args.require_registry_disabled:
+        parser.error(
+            "--require-registry-enabled and --require-registry-disabled are mutually exclusive."
+        )
 
     if sys.platform != "win32":
         print("This probe only does anything on Windows. Nothing to do.")
@@ -626,6 +748,13 @@ def main() -> int:
         print(
             f"FAIL: --require-registry-enabled was passed but the machine-wide "
             f"LongPathsEnabled setting is {registry_value!r}, not 1.",
+            file=sys.stderr,
+        )
+        return 2
+    if args.require_registry_disabled and registry_value == 1:
+        print(
+            f"FAIL: --require-registry-disabled was passed but the machine-wide "
+            f"LongPathsEnabled setting is {registry_value!r}, not 0 or unset.",
             file=sys.stderr,
         )
         return 2
@@ -647,6 +776,14 @@ def main() -> int:
         (
             "normalize round trip and containment",
             lambda: probe_normalize_round_trip(args.work_dir, args.unc_root),
+        ),
+        (
+            "manifest snapshot walks a long root",
+            lambda: probe_manifest_snapshot_long_root(args.work_dir),
+        ),
+        (
+            "manifest snapshot diff branch on a long root",
+            lambda: probe_manifest_snapshot_long_root_with_diff(args.work_dir),
         ),
         (
             "manifest snapshot to a long destination",

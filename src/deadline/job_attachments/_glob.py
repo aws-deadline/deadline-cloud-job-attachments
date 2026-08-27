@@ -5,6 +5,10 @@ import glob
 import json
 from pathlib import Path
 from typing import List, Optional
+from deadline.job_attachments._utils import (
+    _as_extended_length_path,
+    _normalize_windows_path,
+)
 from deadline.job_attachments.exceptions import NonValidInputError
 from deadline.job_attachments.models import GlobConfig
 
@@ -84,13 +88,26 @@ def _glob_paths(
     # Convert path to absolute path
     base_path = os.path.abspath(path)
 
+    # Walk under the extended-length form so callers that reach this from a process
+    # without a longPathAware manifest, or on a host with the LongPathsEnabled registry
+    # setting off, can still descend past MAX_PATH. glob.glob on a plain long root
+    # truncates silently and yields nothing, so a snapshot completes with an empty
+    # manifest -- reported as success but capturing no files. Reachable in the worker
+    # via the registry-off configuration (its python.exe subprocess is longPathAware but
+    # the registry gate still applies), and in DCC-embedded interpreters that call the
+    # CLI's manifest-snapshot path. No-op on POSIX and for already-prefixed roots.
+    walk_root = str(_as_extended_length_path(base_path))
+
     # Process include patterns
-    matched_files = _match_files_with_pattern(base_path, include)
+    matched_files = _match_files_with_pattern(walk_root, include)
 
     # Process exclude patterns
     if exclude:
-        files_to_exclude = _match_files_with_pattern(base_path, exclude)
+        files_to_exclude = _match_files_with_pattern(walk_root, exclude)
         # Remove excluded files from result
         matched_files -= files_to_exclude
 
-    return list(matched_files)
+    # Strip the prefix on the way out. Downstream keeps the plain form as its manifest
+    # keys and containment-check inputs, and re-applies the prefix per file when needed
+    # via _get_long_path_compatible_path.
+    return [str(_normalize_windows_path(p)) for p in matched_files]
