@@ -405,30 +405,69 @@ def probe_normalize_round_trip(work_dir: str, unc_root: Optional[str]) -> None:
             rmtree_long(long_dir)
 
 
-def probe_download_file_writes_to_long_local_path(work_dir: str) -> None:
+def probe_download_file_writes_to_long_local_path(work_dir: str, host_aware: bool) -> None:
     r"""
     Runs ``download.download_file`` under a non-longPathAware interpreter with a mock
     ``transfer_manager.download`` that models s3transfer's write-``<hex>``-temp-then-
-    rename shape by deriving the temp name from ``s3transfer.utils.OSUtils.get_temp_filename``.
+    rename shape via ``s3transfer.utils.OSUtils.get_temp_filename``. Skipped on aware
+    hosts, where the negative control below is impossible.
 
-    Complements ``probe_local_long_path``, which exercises the write-then-rename mechanism
-    directly against ``_get_long_path_compatible_path``. What this probe adds on top is the
-    surrounding ``download_file`` chain -- destination prefix, ``.parent.mkdir``, boto3
-    handoff -- running on a host that cannot tolerate a plain long path.
+    Follows the ``probe_registry_alone_is_insufficient`` shape (positive + negative
+    control) so the probe demonstrates its distinctive capability -- proving the plain
+    form is genuinely rejected on this host before claiming credit for the prefixed one
+    working. Without the negative control, both assertions would be the same shape as
+    ``test_download_file_extended_length_survives_boto3_write_then_rename`` and the
+    probe would earn nothing on top of the unit test.
 
-    The transfer manager is mocked, so this pins our contract with s3transfer (prefix the
-    destination before handoff), not s3transfer's own behaviour. Drift in s3transfer would
-    show up in real download integration tests, not here.
+    Complements ``probe_local_long_path``, which exercises the write-then-rename
+    mechanism directly against ``_get_long_path_compatible_path``. What this probe adds
+    is the surrounding ``download_file`` chain -- destination prefix, ``.parent.mkdir``,
+    boto3 handoff -- confirmed against a host that cannot tolerate a plain long path.
+
+    The transfer manager is mocked, so this pins our contract with s3transfer (prefix
+    the destination before handoff), not s3transfer's own behaviour. Drift in
+    s3transfer's suffix length is pinned separately by the
+    ``test_temp_download_added_chars_length_mirrors_s3transfer_suffix`` unit test.
     """
+    if host_aware:
+        print(
+            "  (skipped: this host is long path aware, so the plain form works "
+            "regardless of the prefix helper -- there is nothing for the negative "
+            "control to demonstrate)"
+        )
+        return
+
     long_dir = build_long_dir(work_dir, "download-dest")
     try:
         payload = b"downloaded contents"
+
+        # Negative control: on this (non-longPathAware) host, a plain long temp name
+        # -- the exact shape s3transfer would write to under a dropped prefix -- must
+        # be rejected by the filesystem. Same idea as `probe_registry_alone_is_insufficient`.
+        # Without this, the positive case below succeeds trivially and pins nothing.
+        plain_dest = os.path.join(long_dir, "scene.ma")
+        plain_temp = plain_dest + ".f307214C"
+        try:
+            with open(plain_temp, "wb") as fh:
+                fh.write(b"x")
+        except OSError:
+            pass
+        else:
+            os.remove(_prefix_for_setup(plain_temp))
+            raise ProbeFailure(
+                "Plain long temp path unexpectedly accepted on a host reporting "
+                "itself as non-longPathAware. The capability probe disagrees with "
+                "the filesystem, or --require-host-unaware is not doing its job."
+            )
+
+        # Positive case: unpatched, download_file prefixes the destination before
+        # handoff and the whole write-then-rename chain succeeds where the plain form
+        # above just failed.
         received_fileobjs: List[str] = []
 
         def fake_download(bucket, key, fileobj, subscribers):
-            # Derive the temp name from s3transfer's OSUtils rather than hard-coding
-            # a `.<hex>` suffix. If s3transfer ever moved the temp file elsewhere or
-            # changed the suffix, we notice loudly here rather than green-lying.
+            # Temp name from s3transfer's own OSUtils; suffix-length drift is pinned
+            # by test_temp_download_added_chars_length_mirrors_s3transfer_suffix.
             received_fileobjs.append(fileobj)
             temp_path = OSUtils().get_temp_filename(fileobj)
             with open(temp_path, "wb") as fh:
@@ -457,7 +496,7 @@ def probe_download_file_writes_to_long_local_path(work_dir: str) -> None:
                 MagicMock(),  # collision_file_dict
                 "test-bucket",
                 "rootPrefix/Data",
-                MagicMock(),  # s3_client
+                MagicMock(),  # s3_client (non-None short-circuits get_s3_client)
             )
 
         check(
@@ -467,13 +506,17 @@ def probe_download_file_writes_to_long_local_path(work_dir: str) -> None:
         fileobj = received_fileobjs[0]
         check(
             fileobj.startswith(WINDOWS_UNC_PATH_STRING_PREFIX),
-            f"download_file passed a plain long path to s3transfer under a "
-            f"non-longPathAware host; would fail with WinError 3. Got: {fileobj[:80]}",
+            f"download_file handed s3transfer a plain long path on a non-longPathAware "
+            f"host after the negative control above confirmed that shape is rejected "
+            f"here. Got: {fileobj[:80]}",
         )
         final = _get_long_path_compatible_path(os.path.join(long_dir, "scene.ma"))
         check(final.is_file(), f"Expected {final} to exist after download")
 
-        print(f"  download_file wrote to a {len(long_dir)}-char destination via prefix")
+        print(
+            f"  plain form rejected, download_file prefixed and wrote to a "
+            f"{len(long_dir)}-char destination"
+        )
     finally:
         rmtree_long(long_dir)
 
@@ -859,7 +902,7 @@ def main() -> int:
         ),
         (
             "download_file writes to a long local path",
-            lambda: probe_download_file_writes_to_long_local_path(args.work_dir),
+            lambda: probe_download_file_writes_to_long_local_path(args.work_dir, host_aware),
         ),
         (
             "manifest snapshot walks a long root",

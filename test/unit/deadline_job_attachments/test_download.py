@@ -3393,12 +3393,11 @@ def test_download_file_extended_length_survives_boto3_write_then_rename(tmp_path
     payload = b"downloaded contents"
 
     def fake_download(bucket, key, fileobj, subscribers):
-        # Derive the temp name from s3transfer's own OSUtils rather than hard-coding a
-        # sibling `.<8-hex>` suffix. If s3transfer ever moved the temp file elsewhere
-        # or changed the suffix length, the fake would go stale silently -- this call
-        # anchors us to the real API. `TEMP_DOWNLOAD_ADDED_CHARS_LENGTH` in `_utils`
-        # mirrors the 9-char length; `test_download_file_prefix_gate_boundary` pins
-        # that mirroring at the transition window.
+        # Temp name from s3transfer's own OSUtils so the fake writes against
+        # s3transfer's actual shape rather than a hard-coded literal. This does NOT
+        # by itself catch drift in the suffix length --
+        # `test_temp_download_added_chars_length_mirrors_s3transfer_suffix` at the
+        # bottom of this file is the pin that fails when s3transfer's suffix changes.
         received_fileobjs.append(fileobj)
         temp_path = OSUtils().get_temp_filename(fileobj)
         with open(temp_path, "wb") as fh:
@@ -3514,8 +3513,8 @@ def test_download_file_prefix_gate_boundary(
     payload = b"boundary"
 
     def fake_download(bucket, key, fileobj, subscribers):
-        # Suffix derived from s3transfer's OSUtils so a change there fails loudly
-        # rather than green-lying against a hard-coded literal.
+        # Temp name from s3transfer's own OSUtils; suffix-length drift is pinned
+        # separately by `test_temp_download_added_chars_length_mirrors_s3transfer_suffix`.
         received_fileobjs.append(fileobj)
         temp_path = OSUtils().get_temp_filename(fileobj)
         with open(temp_path, "wb") as fh:
@@ -3567,3 +3566,31 @@ def test_download_file_prefix_gate_boundary(
         assert final.is_file(), f"Expected {final} to exist after download"
     finally:
         shutil.rmtree(WINDOWS_UNC_PATH_STRING_PREFIX + str(long_dir), ignore_errors=True)
+
+
+def test_temp_download_added_chars_length_mirrors_s3transfer_suffix():
+    r"""
+    Pin ``_utils.TEMP_DOWNLOAD_ADDED_CHARS_LENGTH`` to s3transfer's actual temp-suffix
+    length. The gate at ``_utils.py:220-224`` uses this constant to decide when to apply
+    the ``\\?\`` prefix; if it drifts under s3transfer's real suffix, ``download_file``
+    can hand boto3 a plain destination whose temp sibling exceeds ``MAX_PATH`` -- the
+    #520 shape. This assertion is what turns red when s3transfer moves.
+
+    A bare basename is used deliberately: ``OSUtils.get_temp_filename`` truncates at
+    ``_MAX_FILENAME_LEN - len(suffix)`` (currently 255 - 9), so the delta is only ``+9``
+    when the basename is short. ``_MAX_FILENAME_LEN`` is private and not consulted here,
+    but noted for anyone updating this test.
+
+    ``s3transfer.utils`` is not in this repo's declared dependencies -- it arrives
+    transitively via boto3. If a future boto3 bump repins s3transfer to a version
+    without ``OSUtils.get_temp_filename`` (or reshapes it), this test is where that
+    change surfaces first.
+    """
+    probe = "scene.ma"
+    delta = len(OSUtils().get_temp_filename(probe)) - len(probe)
+    assert delta == TEMP_DOWNLOAD_ADDED_CHARS_LENGTH, (
+        f"s3transfer's temp suffix is now {delta} chars, but "
+        f"_utils.TEMP_DOWNLOAD_ADDED_CHARS_LENGTH is {TEMP_DOWNLOAD_ADDED_CHARS_LENGTH}. "
+        f"Update the constant (and re-check the gate arithmetic in "
+        f"_get_long_path_compatible_path) or roll back the s3transfer bump."
+    )
