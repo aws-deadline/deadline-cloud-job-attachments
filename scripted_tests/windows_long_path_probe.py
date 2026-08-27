@@ -41,6 +41,12 @@ import traceback
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
+from threading import Lock
+from unittest.mock import MagicMock, patch
+
+from s3transfer.utils import OSUtils
+
+import deadline
 from deadline.job_attachments._utils import (
     TEMP_DOWNLOAD_ADDED_CHARS_LENGTH,
     WINDOWS_MAX_PATH_LENGTH,
@@ -55,6 +61,7 @@ from deadline.job_attachments.api._utils import _read_manifests
 from deadline.job_attachments.api.manifest import _manifest_snapshot
 from deadline.job_attachments.asset_manifests import HashAlgorithm
 from deadline.job_attachments.asset_manifests.v2023_03_03 import AssetManifest, ManifestPath
+from deadline.job_attachments.download import download_file
 from deadline.job_attachments.models import ManifestSnapshot, S3_DATA_FOLDER_NAME
 from deadline.job_attachments.upload import S3AssetUploader
 
@@ -396,6 +403,79 @@ def probe_normalize_round_trip(work_dir: str, unc_root: Optional[str]) -> None:
             print(f"  [{label}] prefix round-trips and containment holds")
         finally:
             rmtree_long(long_dir)
+
+
+def probe_download_file_writes_to_long_local_path(work_dir: str) -> None:
+    r"""
+    Runs ``download.download_file`` under a non-longPathAware interpreter with a mock
+    ``transfer_manager.download`` that models s3transfer's write-``<hex>``-temp-then-
+    rename shape by deriving the temp name from ``s3transfer.utils.OSUtils.get_temp_filename``.
+
+    Complements ``probe_local_long_path``, which exercises the write-then-rename mechanism
+    directly against ``_get_long_path_compatible_path``. What this probe adds on top is the
+    surrounding ``download_file`` chain -- destination prefix, ``.parent.mkdir``, boto3
+    handoff -- running on a host that cannot tolerate a plain long path.
+
+    The transfer manager is mocked, so this pins our contract with s3transfer (prefix the
+    destination before handoff), not s3transfer's own behaviour. Drift in s3transfer would
+    show up in real download integration tests, not here.
+    """
+    long_dir = build_long_dir(work_dir, "download-dest")
+    try:
+        payload = b"downloaded contents"
+        received_fileobjs: List[str] = []
+
+        def fake_download(bucket, key, fileobj, subscribers):
+            # Derive the temp name from s3transfer's OSUtils rather than hard-coding
+            # a `.<hex>` suffix. If s3transfer ever moved the temp file elsewhere or
+            # changed the suffix, we notice loudly here rather than green-lying.
+            received_fileobjs.append(fileobj)
+            temp_path = OSUtils().get_temp_filename(fileobj)
+            with open(temp_path, "wb") as fh:
+                fh.write(payload)
+            os.replace(temp_path, fileobj)
+            future = MagicMock()
+            future.result.return_value = None
+            return future
+
+        mock_transfer_manager = MagicMock()
+        mock_transfer_manager.download.side_effect = fake_download
+
+        file_path = ManifestPath(
+            path="scene.ma", hash="filehash", size=len(payload), mtime=1234000000
+        )
+
+        with patch(
+            f"{deadline.__package__}.job_attachments.download.get_s3_transfer_manager",
+            return_value=mock_transfer_manager,
+        ):
+            download_file(
+                file_path,
+                HashAlgorithm.XXH128,
+                long_dir,
+                Lock(),
+                MagicMock(),  # collision_file_dict
+                "test-bucket",
+                "rootPrefix/Data",
+                MagicMock(),  # s3_client
+            )
+
+        check(
+            len(received_fileobjs) == 1,
+            f"Expected exactly one download call, got {len(received_fileobjs)}",
+        )
+        fileobj = received_fileobjs[0]
+        check(
+            fileobj.startswith(WINDOWS_UNC_PATH_STRING_PREFIX),
+            f"download_file passed a plain long path to s3transfer under a "
+            f"non-longPathAware host; would fail with WinError 3. Got: {fileobj[:80]}",
+        )
+        final = _get_long_path_compatible_path(os.path.join(long_dir, "scene.ma"))
+        check(final.is_file(), f"Expected {final} to exist after download")
+
+        print(f"  download_file wrote to a {len(long_dir)}-char destination via prefix")
+    finally:
+        rmtree_long(long_dir)
 
 
 def probe_manifest_snapshot_long_root(work_dir: str) -> None:
@@ -776,6 +856,10 @@ def main() -> int:
         (
             "normalize round trip and containment",
             lambda: probe_normalize_round_trip(args.work_dir, args.unc_root),
+        ),
+        (
+            "download_file writes to a long local path",
+            lambda: probe_download_file_writes_to_long_local_path(args.work_dir),
         ),
         (
             "manifest snapshot walks a long root",
