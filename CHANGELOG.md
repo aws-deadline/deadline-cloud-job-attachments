@@ -1,3 +1,8 @@
+## 0.1.4 (2026-08-27)
+
+### Bug Fixes
+* Fixed handling of Windows long paths (>260 characters) during output sync. Paths that exceed the MAX_PATH limit are now correctly prefixed to avoid file operation failures. (#68)
+* The `\\?\` long path prefix is now applied regardless of the Windows `LongPathsEnabled` registry setting. Previously, the prefix was only added when the registry key was set, which meant it was skipped for DCC-hosted Python interpreters that don't declare `longPathAware` in their application manifest. The UNC path form has also been corrected. (#67)
 ## 0.1.3 (2026-07-15)
 
 ### Features
