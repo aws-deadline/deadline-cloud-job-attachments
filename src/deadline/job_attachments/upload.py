@@ -77,7 +77,6 @@ from .progress_tracker import (
 from . import _utils
 from ._utils import (
     _get_long_path_compatible_path,
-    _is_relative_to,
     _join_s3_paths,
 )
 
@@ -1248,7 +1247,7 @@ class S3AssetManager:
 
             # Skips the upload if the path is relative to any of the File System Location
             # of SHARED type that was set in the Job.
-            if any(_is_relative_to(abs_path, shared) for shared in shared_type_locations):
+            if any(abs_path.is_relative_to(shared) for shared in shared_type_locations):
                 continue
 
             # If the path is relative to any of the File System Location of LOCAL type,
@@ -1286,7 +1285,7 @@ class S3AssetManager:
 
             # Skips the upload if the path is relative to any of the File System Location
             # of SHARED type that was set in the Job.
-            if any(_is_relative_to(abs_path, shared) for shared in shared_type_locations):
+            if any(abs_path.is_relative_to(shared) for shared in shared_type_locations):
                 continue
 
             # If the path is relative to any of the File System Location of LOCAL type,
@@ -1304,7 +1303,7 @@ class S3AssetManager:
 
             # Skips the reference if the path is relative to any of the File System Location
             # of SHARED type that was set in the Job.
-            if any(_is_relative_to(abs_path, shared) for shared in shared_type_locations):
+            if any(abs_path.is_relative_to(shared) for shared in shared_type_locations):
                 continue
             # If the path is relative to any of the File System Location of LOCAL type,
             # groups the references into a single group using the path of that location.
@@ -1357,7 +1356,7 @@ class S3AssetManager:
         """
         matched_root = None
         for root_path in local_type_locations.keys():
-            if _is_relative_to(abs_path, root_path) and (
+            if abs_path.is_relative_to(root_path) and (
                 matched_root is None or len(root_path) > len(matched_root)
             ):
                 matched_root = root_path

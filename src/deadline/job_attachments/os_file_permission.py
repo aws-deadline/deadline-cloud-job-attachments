@@ -9,7 +9,7 @@ from enum import Enum
 from typing import List, Set, Union
 
 from .exceptions import AssetSyncError, PathOutsideDirectoryError
-from ._utils import _get_long_path_compatible_path, _is_relative_to, _normalize_windows_path
+from ._utils import _get_long_path_compatible_path, _normalize_windows_path
 
 
 @dataclass
@@ -84,7 +84,9 @@ def _set_fs_group_for_posix(
     # 1. Set group ownership and permissions for each file.
     for file_path_str in file_paths:
         # The file path must be relative to the root path (ie. local_root).
-        if not _is_relative_to(file_path_str, local_root):
+        if not _normalize_windows_path(Path(file_path_str).resolve()).is_relative_to(
+            _normalize_windows_path(Path(local_root).resolve())
+        ):
             raise PathOutsideDirectoryError(
                 f"The provided path '{file_path_str}' is not under the root directory: {local_root}"
             )
@@ -118,7 +120,9 @@ def _set_fs_permission_for_windows(
     # 1. Set permissions for each file.
     for file_path_str in file_paths:
         # The file path must be relative to the root path (ie. local_root).
-        if not _is_relative_to(file_path_str, local_root):
+        if not _normalize_windows_path(Path(file_path_str).resolve()).is_relative_to(
+            _normalize_windows_path(Path(local_root).resolve())
+        ):
             raise PathOutsideDirectoryError(
                 f"The provided path '{file_path_str}' is not under the root directory: {local_root}"
             )

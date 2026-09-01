@@ -17,7 +17,6 @@ __all__ = [
     "_float_to_iso_datetime_string",
     "_get_unique_dest_dir_name",
     "_get_bucket_and_object_key",
-    "_is_relative_to",
 ]
 
 
@@ -110,20 +109,6 @@ def _normalize_windows_path(path: Union[Path, str]) -> Path:
     if p_str.startswith(WINDOWS_UNC_PATH_STRING_PREFIX):
         return Path(p_str[len(WINDOWS_UNC_PATH_STRING_PREFIX) :])
     return Path(path)
-
-
-def _is_relative_to(path1: Union[Path, str], path2: Union[Path, str]) -> bool:
-    """
-    Determines if path1 is relative to path2. This function is to support
-    Python versions (3.7 and 3.8) that do not have the built-in `Path.is_relative_to()` method.
-    """
-    try:
-        p1 = _normalize_windows_path(Path(path1).resolve())
-        p2 = _normalize_windows_path(Path(path2).resolve())
-        p1.relative_to(p2)
-        return True
-    except ValueError:
-        return False
 
 
 @lru_cache(maxsize=1)
