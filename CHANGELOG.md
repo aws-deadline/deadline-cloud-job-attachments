@@ -1,4 +1,4 @@
-## 0.1.4 (2026-08-27)
+## 0.1.4 (2026-09-02)
 
 ### Bug Fixes
 * Fixed handling of Windows long paths (>260 characters) during output sync. Paths that exceed the MAX_PATH limit are now correctly prefixed to avoid file operation failures. (#68)
