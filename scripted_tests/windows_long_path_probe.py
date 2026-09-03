@@ -47,6 +47,7 @@ from deadline.job_attachments._utils import (
     WINDOWS_UNC_DEVICE_PATH_STRING_PREFIX,
     WINDOWS_UNC_PATH_STRING_PREFIX,
     _get_long_path_compatible_path,
+    _is_normalized_subpath,
     _is_windows_long_path_registry_enabled,
     _normalize_windows_path,
 )
@@ -356,7 +357,7 @@ def probe_unc_long_path(unc_root: str) -> None:
 def probe_normalize_round_trip(work_dir: str, unc_root: Optional[str]) -> None:
     """
     Defect 3: `_normalize_windows_path` must invert both prefix forms, because it feeds
-    `Path.is_relative_to` and the session-directory containment check in
+    `_is_normalized_subpath` and the session-directory containment check in
     os_file_permission.py. A path that normalizes wrong makes a file legitimately inside
     the session directory compare as outside, raising PathOutsideDirectoryError.
 
@@ -385,9 +386,7 @@ def probe_normalize_round_trip(work_dir: str, unc_root: Optional[str]) -> None:
             # The containment check os_file_permission.py performs. The session directory
             # is the plain root; the file arrives carrying the prefix.
             check(
-                _normalize_windows_path(Path(prefixed).resolve()).is_relative_to(
-                    _normalize_windows_path(Path(root).resolve())
-                ),
+                _is_normalized_subpath(prefixed, root),
                 f"[{label}] A file inside {root!r} compared as outside it when carrying "
                 f"the long-path prefix. This is the PathOutsideDirectoryError path.",
             )

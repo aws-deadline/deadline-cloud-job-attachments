@@ -17,6 +17,7 @@ __all__ = [
     "_float_to_iso_datetime_string",
     "_get_unique_dest_dir_name",
     "_get_bucket_and_object_key",
+    "_is_normalized_subpath",
 ]
 
 
@@ -109,6 +110,22 @@ def _normalize_windows_path(path: Union[Path, str]) -> Path:
     if p_str.startswith(WINDOWS_UNC_PATH_STRING_PREFIX):
         return Path(p_str[len(WINDOWS_UNC_PATH_STRING_PREFIX) :])
     return Path(path)
+
+
+def _is_normalized_subpath(path: Union[Path, str], root: Union[Path, str]) -> bool:
+    """Return whether ``path`` resolves beneath ``root`` after Windows normalization.
+
+    ``Path.is_relative_to`` is unavailable on Python 3.8, which remains supported by
+    this package. Using ``relative_to`` also keeps this check compatible while retaining
+    the resolve and extended-length path normalization required by callers.
+    """
+    try:
+        normalized_path = _normalize_windows_path(Path(path).resolve())
+        normalized_root = _normalize_windows_path(Path(root).resolve())
+        normalized_path.relative_to(normalized_root)
+        return True
+    except ValueError:
+        return False
 
 
 @lru_cache(maxsize=1)

@@ -16,6 +16,7 @@ from deadline.job_attachments._utils import (
     WINDOWS_UNC_PATH_STRING_PREFIX,
     _as_extended_length_path,
     _get_long_path_compatible_path,
+    _is_normalized_subpath,
     _normalize_windows_path,
     _retry,
 )
@@ -49,6 +50,67 @@ class TestUtils:
         from Windows extended-length paths.
         """
         assert _normalize_windows_path(Path(input_path)) == expected
+
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="This test is for paths in POSIX path format and will be skipped on Windows.",
+    )
+    @pytest.mark.parametrize(
+        ("path", "root", "expected"),
+        [
+            ("/a/b/c", "/a/b", True),
+            (Path("/a/b/c.txt"), "/a", True),
+            ("a/b/c", "a/b", True),
+            (Path("a/b/c.txt"), "a", True),
+            ("/a/b/c", "a/b", False),
+            ("a/b/c", "/a/b", False),
+            ("/a/b/c", "/d", False),
+            ("a/b/c", "b", False),
+            ("a/b/c", "d", False),
+        ],
+    )
+    def test_is_normalized_subpath_on_posix(self, path, root, expected):
+        assert _is_normalized_subpath(path, root) == expected
+
+    @pytest.mark.skipif(
+        sys.platform != "win32",
+        reason="This test is for paths in Windows path format and will be skipped on non-Windows.",
+    )
+    @pytest.mark.parametrize(
+        ("path", "root", "expected"),
+        [
+            ("C:/a/b/c", "C:/a/b", True),
+            (Path("C:/a/b/c.txt"), "C:/a", True),
+            ("C:\\a\\b\\c", "C:\\a\\b", True),
+            (Path("C:\\a\\b\\c.txt"), "C:\\a", True),
+            ("a/b/c", "a/b", True),
+            (Path("a/b/c.txt"), "a", True),
+            ("C:/a/b/c", "a/b", False),
+            ("a/b/c", "C:/a/b", False),
+            ("C:/a/b/c", "C:/d", False),
+            ("a/b/c", "b", False),
+            ("a/b/c", "d", False),
+            (
+                "\\\\?\\C:\\path\\to\\a\\very\\long\\file\\path\\that\\exceeds\\the\\windows\\max\\path\\length\\for\\testing\\max\\file\\path\\error\\handling\\when\\comparing\\path\\relativity\\using\\job\\attachments",
+                "C:\\path\\to\\",
+                True,
+            ),
+            (
+                "\\\\?\\C:\\path\\to\\a\\very\\long\\file\\path\\that\\exceeds\\the\\windows\\max\\path\\length\\for\\testing\\max\\file\\path\\error\\handling\\when\\comparing\\path\\relativity\\using\\job\\attachments",
+                "C:\\path\\doesnt\\exist\\",
+                False,
+            ),
+            (
+                "\\\\?\\C:\\ProgramData\\Amazon\\OpenJD\\session-612345a668724122b6949a232cb4583e1234567d\\assetroot-777691d8674399c12345\\Desktop\\resources\\isolated-black-tree-silhouettes-white-background-shade-trees-used-product-design-isolated-black-tree-silhouettes-1270.jpg",
+                Path(
+                    "C:\\ProgramData\\Amazon\\OpenJD\\session-612345a668724122b6949a232cb4583e1234567d\\assetroot-777691d8674399c12345"
+                ),
+                True,
+            ),
+        ],
+    )
+    def test_is_normalized_subpath_on_windows(self, path, root, expected):
+        assert _is_normalized_subpath(path, root) == expected
 
     def test_retry(self):
         """
@@ -343,7 +405,7 @@ class TestGetLongPathCompatiblePath:
     def test_prefix_is_stripped_back_to_the_original_form(self, prefixed, expected):
         r"""
         Stripping has to invert prefixing for both forms. `_normalize_windows_path` feeds
-        `Path.is_relative_to` and the session-directory containment check in
+        `_is_normalized_subpath` and the session-directory containment check in
         os_file_permission, so a network path that strips to `UNC\server\share` would
         read as relative and compare unequal against its own normal form.
         """

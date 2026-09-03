@@ -73,7 +73,7 @@ from .os_file_permission import (
     _set_fs_group_for_posix,
     _set_fs_permission_for_windows,
 )
-from ._utils import _get_long_path_compatible_path
+from ._utils import _get_long_path_compatible_path, _is_normalized_subpath
 from threading import Lock
 
 download_logger = getLogger("deadline.job_attachments.download")
@@ -1354,7 +1354,7 @@ def _ensure_paths_within_directory(root_path: str, paths_relative_to_root: list[
 
     for path in paths_relative_to_root:
         resolved_path = Path(root_path, path).resolve()
-        if not resolved_path.is_relative_to(Path(root_path).resolve()):
+        if not _is_normalized_subpath(resolved_path, root_path):
             raise PathOutsideDirectoryError(
                 f"The provided path is not under the root directory: {path}"
             )
