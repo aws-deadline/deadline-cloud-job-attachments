@@ -234,7 +234,6 @@ class VFSProcessManager(object):
                 log.info(f"is_mount on {mount_path} not {expected}, sleeping...")
                 time.sleep(1)
         log.info(f"Failed to find is_mount {expected} at {mount_path} after {mount_wait_seconds}")
-        cls.print_log_end(session_dir)
         return False
 
     @classmethod
@@ -257,22 +256,15 @@ class VFSProcessManager(object):
         self, session_dir: Path, log_file_name="vfs_log.txt", lines=100, log_level=logging.WARNING
     ):
         """
-        Print out the end of our VFS Log.  Reads the full log file into memory.  Our VFS logs are size
-        capped so this is not an issue for the intended use case.
-        :param session_dir: Session folder for mount
-        :param log_file_name: Name of file within the logs folder to read from.  Defaults to vfs_log.txt which
-        is our "most recent" log file.
-        :param lines: Maximum number of lines from the end of the log to print
-        :param log_level: Level to print logging as
+        Retained for API compatibility. VFS diagnostics are emitted through captured process
+        output instead of this method.
+
+        :param session_dir: Unused session folder for the mount.
+        :param log_file_name: Unused VFS log file name.
+        :param lines: Unused maximum number of lines.
+        :param log_level: Level for the compatibility message.
         """
-        log_file_path = self.logs_folder_path(session_dir) / log_file_name
-        log.log(log_level, f"Printing last {lines} lines from {log_file_path}")
-        if not os.path.exists(log_file_path):
-            log.warning(f"No log file found at {log_file_path}")
-            return
-        with open(log_file_path, "r") as log_file:
-            for this_line in log_file.readlines()[lines * -1 :]:
-                log.log(log_level, this_line)
+        log.log(log_level, "VFS diagnostics are available through captured process output")
 
     @classmethod
     def find_vfs_link_dir(cls) -> str:

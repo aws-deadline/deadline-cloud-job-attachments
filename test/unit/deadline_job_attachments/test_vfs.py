@@ -800,6 +800,27 @@ def test_launch_environment_has_expected_settings(
     assert not launch_env.get(DEADLINE_VFS_ENV_VAR)
 
 
+def test_wait_for_mount_timeout_returns_false(tmp_path: Path):
+    with patch.object(VFSProcessManager, "is_mount", return_value=False), patch.object(
+        VFSProcessManager, "print_log_end"
+    ) as mock_print_log_end:
+        assert not VFSProcessManager.wait_for_mount(
+            mount_path="/test/mount",
+            session_dir=tmp_path,
+            mount_wait_seconds=0,
+        )
+
+    mock_print_log_end.assert_not_called()
+
+
+def test_print_log_end_uses_captured_process_output(tmp_path: Path, caplog):
+    with patch("builtins.open") as mock_open:
+        VFSProcessManager.print_log_end(tmp_path)
+
+    mock_open.assert_not_called()
+    assert "VFS diagnostics are available through captured process output" in caplog.text
+
+
 def test_vfs_launched_in_session_folder(
     tmp_path: Path,
 ):
