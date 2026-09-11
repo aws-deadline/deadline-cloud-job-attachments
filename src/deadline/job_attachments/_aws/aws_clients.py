@@ -130,7 +130,11 @@ def get_account_id(session: Optional[boto3.session.Session] = None) -> Optional[
 
     # Fallback for older botocore or credential providers that don't populate account_id
     try:
-        return session.client("sts").get_caller_identity()["Account"]
+        sts = session.client(
+            "sts",
+            config=Config(connect_timeout=2, read_timeout=2, retries={"max_attempts": 2}),
+        )
+        return sts.get_caller_identity()["Account"]
     except Exception:
         logger.debug(
             "Could not determine AWS account ID from session credentials or STS. "

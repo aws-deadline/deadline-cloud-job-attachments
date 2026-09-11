@@ -6,7 +6,7 @@ import os
 import tempfile
 from collections import namedtuple
 from io import BytesIO
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import ANY, Mock, patch, MagicMock
 
 import boto3
 import pytest
@@ -185,7 +185,12 @@ class TestGetAccountId:
         mock_session.client.return_value = mock_sts
 
         assert get_account_id(session=mock_session) == "444455556666"
-        mock_session.client.assert_called_once_with("sts")
+        mock_session.client.assert_called_once_with("sts", config=ANY)
+        _, kwargs = mock_session.client.call_args
+        config = kwargs["config"]
+        assert config.connect_timeout == 2
+        assert config.read_timeout == 2
+        assert config.retries["max_attempts"] == 2
 
     def test_falls_back_to_sts_when_account_id_is_none(self, boto_config):
         """When frozen credentials have account_id=None, fall back to STS."""
