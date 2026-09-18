@@ -17,7 +17,7 @@ __all__ = [
     "_float_to_iso_datetime_string",
     "_get_unique_dest_dir_name",
     "_get_bucket_and_object_key",
-    "_is_relative_to",
+    "_is_normalized_subpath",
 ]
 
 
@@ -112,15 +112,17 @@ def _normalize_windows_path(path: Union[Path, str]) -> Path:
     return Path(path)
 
 
-def _is_relative_to(path1: Union[Path, str], path2: Union[Path, str]) -> bool:
-    """
-    Determines if path1 is relative to path2. This function is to support
-    Python versions (3.7 and 3.8) that do not have the built-in `Path.is_relative_to()` method.
+def _is_normalized_subpath(path: Union[Path, str], root: Union[Path, str]) -> bool:
+    """Return whether ``path`` resolves beneath ``root`` after Windows normalization.
+
+    ``Path.is_relative_to`` is unavailable on Python 3.8, which remains supported by
+    this package. Using ``relative_to`` also keeps this check compatible while retaining
+    the resolve and extended-length path normalization required by callers.
     """
     try:
-        p1 = _normalize_windows_path(Path(path1).resolve())
-        p2 = _normalize_windows_path(Path(path2).resolve())
-        p1.relative_to(p2)
+        normalized_path = _normalize_windows_path(Path(path).resolve())
+        normalized_root = _normalize_windows_path(Path(root).resolve())
+        normalized_path.relative_to(normalized_root)
         return True
     except ValueError:
         return False

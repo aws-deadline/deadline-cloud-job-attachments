@@ -16,8 +16,8 @@ from deadline.job_attachments._utils import (
     WINDOWS_UNC_PATH_STRING_PREFIX,
     _as_extended_length_path,
     _get_long_path_compatible_path,
+    _is_normalized_subpath,
     _normalize_windows_path,
-    _is_relative_to,
     _retry,
 )
 
@@ -56,7 +56,7 @@ class TestUtils:
         reason="This test is for paths in POSIX path format and will be skipped on Windows.",
     )
     @pytest.mark.parametrize(
-        ("path1", "path2", "expected"),
+        ("path", "root", "expected"),
         [
             ("/a/b/c", "/a/b", True),
             (Path("/a/b/c.txt"), "/a", True),
@@ -69,18 +69,15 @@ class TestUtils:
             ("a/b/c", "d", False),
         ],
     )
-    def test_is_relative_to_on_posix(self, path1, path2, expected):
-        """
-        Tests if the is_relative_to() works correctly when using Posix paths.
-        """
-        assert _is_relative_to(path1, path2) == expected
+    def test_is_normalized_subpath_on_posix(self, path, root, expected):
+        assert _is_normalized_subpath(path, root) == expected
 
     @pytest.mark.skipif(
         sys.platform != "win32",
         reason="This test is for paths in Windows path format and will be skipped on non-Windows.",
     )
     @pytest.mark.parametrize(
-        ("path1", "path2", "expected"),
+        ("path", "root", "expected"),
         [
             ("C:/a/b/c", "C:/a/b", True),
             (Path("C:/a/b/c.txt"), "C:/a", True),
@@ -112,11 +109,8 @@ class TestUtils:
             ),
         ],
     )
-    def test_is_relative_to_on_windows(self, path1, path2, expected):
-        """
-        Tests if the is_relative_to() works correctly when using Windows paths.
-        """
-        assert _is_relative_to(path1, path2) == expected
+    def test_is_normalized_subpath_on_windows(self, path, root, expected):
+        assert _is_normalized_subpath(path, root) == expected
 
     def test_retry(self):
         """
@@ -411,7 +405,7 @@ class TestGetLongPathCompatiblePath:
     def test_prefix_is_stripped_back_to_the_original_form(self, prefixed, expected):
         r"""
         Stripping has to invert prefixing for both forms. `_normalize_windows_path` feeds
-        `_is_relative_to` and the session-directory containment check in
+        `_is_normalized_subpath` and the session-directory containment check in
         os_file_permission, so a network path that strips to `UNC\server\share` would
         read as relative and compare unequal against its own normal form.
         """
