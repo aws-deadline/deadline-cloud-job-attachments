@@ -1,3 +1,8 @@
+## 0.1.5 (2026-09-29)
+
+### Bug Fixes
+* Fixed `get_account_id` hanging for up to 5 minutes on networks that block STS. The `sts:GetCallerIdentity` fallback now uses a 2 second connect and read timeout with at most 2 attempts. (#84)
+* Fixed a redundant VFS log read on mount timeout. VFS process output is already forwarded to the application logger, so `VFSProcessManager.print_log_end` no longer reads the log file and is retained only for API compatibility. (#83)
 ## 0.1.4 (2026-09-03)
 
 ### Bug Fixes
