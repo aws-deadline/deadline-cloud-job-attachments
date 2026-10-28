@@ -13,7 +13,7 @@ from io import BytesIO
 from logging import DEBUG, INFO
 from pathlib import Path
 from typing import Dict, List, Set, Tuple
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import boto3
 import py.path
@@ -60,8 +60,11 @@ from deadline.job_attachments.progress_tracker import (
     SummaryStatistics,
 )
 from deadline.job_attachments.upload import FileStatus, S3AssetManager, S3AssetUploader
+from deadline.job_attachments._s3_object_lifetime import S3ObjectLifetime
 from deadline.job_attachments.api import human_readable_file_size
 from ..conftest import is_windows_non_admin
+
+THIRTY_DAYS = 30 * 24 * 60 * 60
 
 
 class TestUpload:
@@ -2756,9 +2759,12 @@ class TestUpload:
             side_effect=["345.67"],
         ), patch.object(
             asset_manager.asset_uploader,
-            "file_already_uploaded",
-            return_value=file_exists_in_s3,
-        ) as mock_file_already_uploaded, patch.object(
+            "_get_object_lifetime",
+            # The second HEAD happens after the upload, to learn the new object's expiration.
+            side_effect=[S3ObjectLifetime(readable=True, readable_until=None)]
+            if file_exists_in_s3
+            else [None, S3ObjectLifetime(readable=True, readable_until=None)],
+        ) as mock_get_object_lifetime, patch.object(
             asset_manager.asset_uploader,
             "upload_file_to_s3",
         ) as mock_upload_file_to_s3:
@@ -2778,7 +2784,7 @@ class TestUpload:
             # Cache lookup should NOT have been called (bypassed due to force_s3_check)
             s3_cache.get_connection_entry.assert_not_called()
             # S3 HEAD should always be called when force_s3_check=True
-            mock_file_already_uploaded.assert_called_once_with(
+            assert mock_get_object_lifetime.call_args_list[0] == call(
                 default_job_attachment_s3_settings.s3BucketName,
                 "prefix/test-hash.xxh128",
             )
@@ -2788,7 +2794,7 @@ class TestUpload:
             else:
                 mock_upload_file_to_s3.assert_not_called()
             # Cache should always be updated after HEAD/upload
-            expected_new_entry = S3CheckCacheEntry(s3_key, "345.67")
+            expected_new_entry = S3CheckCacheEntry(s3_key, "345.67", str(345.67 + THIRTY_DAYS))
             s3_cache.put_entry.assert_called_once_with(expected_new_entry)
 
     def test_open_non_symlink_file_binary(self, tmp_path: Path):
@@ -2861,7 +2867,7 @@ class TestUpload:
         s3_key = f"{default_job_attachment_s3_settings.s3BucketName}/prefix/test-hash.xxh128"
         s3_cache = MagicMock()
         s3_cache.get_connection_entry.return_value = None
-        expected_new_entry = S3CheckCacheEntry(s3_key, "345.67")
+        expected_new_entry = S3CheckCacheEntry(s3_key, "345.67", str(345.67 + THIRTY_DAYS))
 
         # When
         with patch.object(

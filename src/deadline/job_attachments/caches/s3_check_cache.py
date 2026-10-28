@@ -6,7 +6,7 @@ Module for accessing the local 'last seen on S3' cache.
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
 from .cache_db import CacheDB
@@ -21,11 +21,18 @@ class S3CheckCacheEntry:
 
     s3_key: str
     last_seen_time: str
+    expiry_time: Optional[str] = None
+    """
+    POSIX timestamp after which the entry is no longer trusted, for example because an S3 Lifecycle
+    rule will expire the object. Entries are never trusted for longer than ENTRY_EXPIRY_DAYS after
+    last_seen_time, so None means that only ENTRY_EXPIRY_DAYS applies.
+    """
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "s3_key": self.s3_key,
             "last_seen_time": self.last_seen_time,
+            "expiry_time": self.expiry_time,
         }
 
 
@@ -43,18 +50,37 @@ class S3CheckCache(CacheDB):
     """
 
     CACHE_NAME = "s3_check_cache"
-    CACHE_DB_VERSION = 1
+    # Version 2 added the expiry_time column. Each version uses its own table in the same database
+    # file, so older library versions that share the file keep reading and writing their own table.
+    CACHE_DB_VERSION = 2
     ENTRY_EXPIRY_DAYS = 30
 
     def __init__(self, cache_dir: Optional[str] = None) -> None:
         table_name: str = f"s3checkV{self.CACHE_DB_VERSION}"
-        create_query: str = f"CREATE TABLE s3checkV{self.CACHE_DB_VERSION}(s3_key text primary key, last_seen_time timestamp)"
+        create_query: str = (
+            f"CREATE TABLE {table_name}"
+            "(s3_key text primary key, last_seen_time timestamp, expiry_time timestamp)"
+        )
         super().__init__(
             cache_name=self.CACHE_NAME,
             table_name=table_name,
             create_query=create_query,
             cache_dir=cache_dir,
         )
+
+    @classmethod
+    def compute_expiry_time(
+        cls, last_seen_time: str, object_expiry: Optional[datetime] = None
+    ) -> str:
+        """
+        Returns the expiry_time to store for an entry last seen at last_seen_time: the earlier of
+        object_expiry (when the entry should stop being trusted because of what S3 will do to the
+        object), and ENTRY_EXPIRY_DAYS after last_seen_time.
+        """
+        expiry = float(last_seen_time) + timedelta(days=cls.ENTRY_EXPIRY_DAYS).total_seconds()
+        if object_expiry is not None:
+            expiry = min(expiry, object_expiry.timestamp())
+        return str(expiry)
 
     def get_connection_entry(self, s3_key: str, connection) -> Optional[S3CheckCacheEntry]:
         """
@@ -65,19 +91,24 @@ class S3CheckCache(CacheDB):
         """
 
         entry_vals = connection.execute(
-            f"SELECT * FROM {self.table_name} WHERE s3_key=?",
+            f"SELECT s3_key, last_seen_time, expiry_time FROM {self.table_name} WHERE s3_key=?",
             [s3_key],
         ).fetchone()
         if entry_vals:
             entry = S3CheckCacheEntry(
                 s3_key=entry_vals[0],
                 last_seen_time=str(entry_vals[1]),
+                expiry_time=None if entry_vals[2] is None else str(entry_vals[2]),
             )
             try:
+                now = datetime.now()
                 last_seen = datetime.fromtimestamp(float(entry.last_seen_time))
-                if (datetime.now() - last_seen).days < self.ENTRY_EXPIRY_DAYS:
-                    return entry
-            except ValueError:
+                if (now - last_seen).days >= self.ENTRY_EXPIRY_DAYS:
+                    return None
+                if entry.expiry_time is not None and now.timestamp() >= float(entry.expiry_time):
+                    return None
+                return entry
+            except (ValueError, OverflowError, OSError):
                 logger.warning(f"Timestamp for S3 key {s3_key} is not valid. Ignoring.")
 
         return None
@@ -97,6 +128,7 @@ class S3CheckCache(CacheDB):
         if self.enabled:
             with self.db_lock, self.db_connection:
                 self.db_connection.execute(
-                    f"INSERT OR REPLACE INTO {self.table_name} VALUES(:s3_key, :last_seen_time)",
+                    f"INSERT OR REPLACE INTO {self.table_name}(s3_key, last_seen_time, expiry_time)"
+                    " VALUES(:s3_key, :last_seen_time, :expiry_time)",
                     entry.to_dict(),
                 )

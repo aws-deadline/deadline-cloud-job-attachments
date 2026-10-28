@@ -15,7 +15,7 @@ import os
 import stat
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import lru_cache
 from io import BufferedReader, BytesIO
 from math import trunc
@@ -55,6 +55,11 @@ from .exceptions import (
     MissingS3RootPrefixError,
 )
 from .caches import HashCache, HashCacheEntry, S3CheckCache, S3CheckCacheEntry
+from ._s3_object_lifetime import (
+    OBJECT_EXPIRY_SAFETY_MARGIN,
+    S3ObjectLifetime,
+    get_object_lifetime,
+)
 from .models import (
     AssetRootGroup,
     AssetRootManifest,
@@ -679,11 +684,16 @@ class S3AssetUploader:
                 )
                 return (is_uploaded, file.size)
 
-        if self.file_already_uploaded(s3_bucket, s3_upload_key):
+        lifetime = self._get_object_lifetime(s3_bucket, s3_upload_key)
+        if lifetime is not None and lifetime.is_usable(datetime.now(timezone.utc)):
             logger.debug(
                 f"skipping {local_path} because it has already been uploaded to s3://{s3_bucket}/{s3_upload_key}"
             )
         else:
+            if lifetime is not None:
+                logger.debug(
+                    f"re-uploading {local_path} because s3://{s3_bucket}/{s3_upload_key} is archived or about to expire"
+                )
             self.upload_file_to_s3(
                 local_path=local_path,
                 s3_bucket=s3_bucket,
@@ -691,15 +701,45 @@ class S3AssetUploader:
                 progress_tracker=progress_tracker,
             )
             is_uploaded = True
+            lifetime = self._get_uploaded_object_lifetime(s3_bucket, s3_upload_key)
 
-        s3_check_cache.put_entry(
-            S3CheckCacheEntry(
-                s3_key=f"{s3_bucket}/{s3_upload_key}",
-                last_seen_time=self._get_current_timestamp(),
+        if lifetime is not None and lifetime.is_usable(datetime.now(timezone.utc)):
+            s3_check_cache.put_entry(
+                self._make_s3_check_cache_entry(f"{s3_bucket}/{s3_upload_key}", lifetime)
             )
-        )
 
         return (is_uploaded, file.size)
+
+    def _make_s3_check_cache_entry(
+        self, s3_key: str, lifetime: S3ObjectLifetime
+    ) -> S3CheckCacheEntry:
+        """
+        Creates an S3 check cache entry that stops being trusted a safety margin before S3 is
+        expected to remove access to the object, or after S3CheckCache.ENTRY_EXPIRY_DAYS.
+        """
+        last_seen_time = self._get_current_timestamp()
+        object_expiry = (
+            lifetime.readable_until - OBJECT_EXPIRY_SAFETY_MARGIN
+            if lifetime.readable_until is not None
+            else None
+        )
+        return S3CheckCacheEntry(
+            s3_key=s3_key,
+            last_seen_time=last_seen_time,
+            expiry_time=S3CheckCache.compute_expiry_time(last_seen_time, object_expiry),
+        )
+
+    def _get_uploaded_object_lifetime(self, bucket: str, key: str) -> Optional[S3ObjectLifetime]:
+        """
+        Checks the lifetime of an object that was just uploaded, so that its S3 check cache entry
+        honors any S3 Lifecycle expiration rule that applies to it. Returns None if the object
+        wasn't uploaded. If the check fails, the object is assumed to have no expiration.
+        """
+        try:
+            return self._get_object_lifetime(bucket, key)
+        except Exception as e:
+            logger.debug(f"Could not check the expiration of s3://{bucket}/{key}: {e}")
+            return S3ObjectLifetime(readable=True, readable_until=None)
 
     def _snapshot_object_to_cas(
         self,
@@ -963,13 +1003,26 @@ class S3AssetUploader:
     def file_already_uploaded(self, bucket: str, key: str) -> bool:
         """
         Check whether the file has already been uploaded by doing a head-object call.
+
+        An object that exists but can't be downloaded by workers counts as not uploaded, so that
+        it gets uploaded again. This is the case when it's in an archive storage class or tier
+        without a completed restore, or when an S3 Lifecycle expiration rule or a restore expiry
+        will remove access to it soon.
+        """
+        lifetime = self._get_object_lifetime(bucket, key)
+        return lifetime is not None and lifetime.is_usable(datetime.now(timezone.utc))
+
+    def _get_object_lifetime(self, bucket: str, key: str) -> Optional[S3ObjectLifetime]:
+        """
+        Does a head-object call and returns what the response says about whether, and until when,
+        the object can be downloaded. Returns None if the object doesn't exist.
         """
         try:
-            self._s3.head_object(
+            response = self._s3.head_object(
                 Bucket=bucket,
                 Key=key,
             )
-            return True
+            return get_object_lifetime(response)
         except ClientError as exc:
             error_code = int(exc.response["ResponseMetadata"]["HTTPStatusCode"])
             if error_code == 403:
@@ -987,7 +1040,7 @@ class S3AssetUploader:
                 raise JobAttachmentsS3ClientError(
                     "checking if object exists", error_code, bucket, key, message
                 ) from exc
-            return False
+            return None
         except BotoCoreError as bce:
             raise JobAttachmentS3BotoCoreError(
                 action="checking for the existence of an object in the S3 bucket",

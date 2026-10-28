@@ -2,7 +2,8 @@
 
 import os
 import threading
-from datetime import datetime
+import sqlite3
+from datetime import datetime, timedelta, timezone
 from sqlite3 import OperationalError
 from unittest.mock import patch
 
@@ -684,6 +685,152 @@ class TestS3CheckCache:
 
             assert actual_entry is None
 
+    def test_entry_can_be_constructed_without_expiry_time(self):
+        """Tests that existing callers that don't know about expiry_time keep working"""
+        entry = S3CheckCacheEntry("bucket/Data/somehash", "123.456")
+        assert entry.expiry_time is None
+        assert entry.to_dict() == {
+            "s3_key": "bucket/Data/somehash",
+            "last_seen_time": "123.456",
+            "expiry_time": None,
+        }
+
+    def test_get_entry_returns_entry_with_future_expiry_time(self, tmpdir):
+        """Tests that an entry is returned, including its expiry_time, before that time is reached"""
+        cache_dir = tmpdir.mkdir("cache")
+        now = datetime.now().timestamp()
+        expected_entry = S3CheckCacheEntry(
+            s3_key="bucket/Data/somehash",
+            last_seen_time=str(now),
+            expiry_time=str(now + timedelta(days=5).total_seconds()),
+        )
+
+        with S3CheckCache(cache_dir) as s3c:
+            s3c.put_entry(expected_entry)
+            assert s3c.get_entry("bucket/Data/somehash") == expected_entry
+            assert (
+                s3c.get_connection_entry("bucket/Data/somehash", s3c.get_local_connection())
+                == expected_entry
+            )
+
+    def test_get_entry_returns_none_after_expiry_time(self, tmpdir):
+        """
+        Tests that a recently seen entry is not returned once its expiry_time has passed, for
+        example because an S3 Lifecycle rule expires the object sooner than ENTRY_EXPIRY_DAYS.
+        """
+        cache_dir = tmpdir.mkdir("cache")
+        now = datetime.now().timestamp()
+        entry = S3CheckCacheEntry(
+            s3_key="bucket/Data/somehash",
+            last_seen_time=str(now - 60),
+            expiry_time=str(now - 1),
+        )
+
+        with S3CheckCache(cache_dir) as s3c:
+            s3c.put_entry(entry)
+            assert s3c.get_entry("bucket/Data/somehash") is None
+            assert (
+                s3c.get_connection_entry("bucket/Data/somehash", s3c.get_local_connection()) is None
+            )
+
+    def test_get_entry_caps_expiry_time_at_entry_expiry_days(self, tmpdir):
+        """
+        Tests that an expiry_time further out than ENTRY_EXPIRY_DAYS can't keep an entry alive
+        for longer than ENTRY_EXPIRY_DAYS after it was last seen.
+        """
+        cache_dir = tmpdir.mkdir("cache")
+        now = datetime.now().timestamp()
+        entry = S3CheckCacheEntry(
+            s3_key="bucket/Data/somehash",
+            last_seen_time=str(
+                now - timedelta(days=S3CheckCache.ENTRY_EXPIRY_DAYS, hours=1).total_seconds()
+            ),
+            expiry_time=str(now + timedelta(days=365).total_seconds()),
+        )
+
+        with S3CheckCache(cache_dir) as s3c:
+            s3c.put_entry(entry)
+            assert s3c.get_entry("bucket/Data/somehash") is None
+
+    def test_get_entry_without_expiry_time_uses_entry_expiry_days(self, tmpdir):
+        """Tests that a NULL expiry_time falls back to the ENTRY_EXPIRY_DAYS behavior"""
+        cache_dir = tmpdir.mkdir("cache")
+        now = datetime.now().timestamp()
+        recent = S3CheckCacheEntry(
+            "bucket/Data/recent",
+            str(now - timedelta(days=S3CheckCache.ENTRY_EXPIRY_DAYS - 1).total_seconds()),
+        )
+        old = S3CheckCacheEntry(
+            "bucket/Data/old",
+            str(now - timedelta(days=S3CheckCache.ENTRY_EXPIRY_DAYS + 1).total_seconds()),
+        )
+
+        with S3CheckCache(cache_dir) as s3c:
+            s3c.put_entry(recent)
+            s3c.put_entry(old)
+            assert s3c.get_entry("bucket/Data/recent") == recent
+            assert s3c.get_entry("bucket/Data/old") is None
+
+    @pytest.mark.parametrize(
+        "last_seen_time, expiry_time",
+        [
+            pytest.param("not-a-number", None, id="bad-last-seen-time"),
+            pytest.param(str(datetime.now().timestamp()), "not-a-number", id="bad-expiry-time"),
+            pytest.param("1e400", None, id="last-seen-time-overflow"),
+            pytest.param("nan", None, id="last-seen-time-nan"),
+        ],
+    )
+    def test_get_entry_ignores_invalid_timestamps(
+        self, tmpdir, caplog, last_seen_time, expiry_time
+    ):
+        """Tests that corrupt timestamps are treated as cache misses rather than raising"""
+        cache_dir = tmpdir.mkdir("cache")
+        entry = S3CheckCacheEntry("bucket/Data/somehash", last_seen_time, expiry_time)
+
+        with S3CheckCache(cache_dir) as s3c:
+            s3c.put_entry(entry)
+            assert s3c.get_entry("bucket/Data/somehash") is None
+        assert "is not valid. Ignoring." in caplog.text
+
+    def test_put_entry_replaces_expiry_time(self, tmpdir):
+        """Tests that re-putting an entry replaces its expiry_time, including clearing it"""
+        cache_dir = tmpdir.mkdir("cache")
+        now = datetime.now().timestamp()
+        key = "bucket/Data/somehash"
+
+        with S3CheckCache(cache_dir) as s3c:
+            s3c.put_entry(S3CheckCacheEntry(key, str(now), str(now + 100)))
+            s3c.put_entry(S3CheckCacheEntry(key, str(now), str(now + 200)))
+            assert s3c.get_entry(key) == S3CheckCacheEntry(key, str(now), str(now + 200))
+            s3c.put_entry(S3CheckCacheEntry(key, str(now)))
+            assert s3c.get_entry(key) == S3CheckCacheEntry(key, str(now), None)
+
+    def test_compute_expiry_time_defaults_to_entry_expiry_days(self):
+        assert S3CheckCache.compute_expiry_time("1000.5") == str(
+            1000.5 + timedelta(days=S3CheckCache.ENTRY_EXPIRY_DAYS).total_seconds()
+        )
+
+    def test_compute_expiry_time_uses_earlier_object_expiry(self):
+        last_seen = datetime(2026, 10, 1, tzinfo=timezone.utc)
+        object_expiry = last_seen + timedelta(days=7)
+        assert S3CheckCache.compute_expiry_time(str(last_seen.timestamp()), object_expiry) == str(
+            object_expiry.timestamp()
+        )
+
+    def test_compute_expiry_time_caps_later_object_expiry(self):
+        last_seen = datetime(2026, 10, 1, tzinfo=timezone.utc)
+        object_expiry = last_seen + timedelta(days=S3CheckCache.ENTRY_EXPIRY_DAYS + 30)
+        assert S3CheckCache.compute_expiry_time(str(last_seen.timestamp()), object_expiry) == str(
+            (last_seen + timedelta(days=S3CheckCache.ENTRY_EXPIRY_DAYS)).timestamp()
+        )
+
+    def test_uses_version_2_table(self, tmpdir):
+        cache_dir = tmpdir.mkdir("cache")
+        with S3CheckCache(cache_dir) as s3c:
+            assert s3c.table_name == "s3checkV2"
+            columns = [row[1] for row in s3c.db_connection.execute("PRAGMA table_info(s3checkV2)")]
+            assert columns == ["s3_key", "last_seen_time", "expiry_time"]
+
     def test_concurrent_read_write_operations_should_not_lock(self, tmpdir):
         """Test that concurrent reads and writes don't cause database locked errors"""
         import threading
@@ -847,3 +994,96 @@ class TestS3CheckCache:
         locked_errors = {k: v for k, v in errors.items() if "database is locked" in v}
         assert len(locked_errors) == 0, f"Got database locked errors: {locked_errors}"
         assert len(errors) == 0, f"Got other errors: {errors}"
+
+
+class TestS3CheckCacheBackwardsCompatibility:
+    """
+    Tests that the version 2 S3 check cache can share a database file with the version 1 cache,
+    which older versions of this library still use.
+    """
+
+    V1_CREATE = "CREATE TABLE s3checkV1(s3_key text primary key, last_seen_time timestamp)"
+
+    def _create_v1_cache(self, cache_dir, entries):
+        """Creates a cache file the way version 1 of the S3 check cache did."""
+        connection = sqlite3.connect(os.path.join(cache_dir, f"{S3CheckCache.CACHE_NAME}.db"))
+        try:
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute(self.V1_CREATE)
+            with connection:
+                for key, last_seen in entries:
+                    connection.execute(
+                        "INSERT OR REPLACE INTO s3checkV1 VALUES(:s3_key, :last_seen_time)",
+                        {"s3_key": key, "last_seen_time": last_seen},
+                    )
+        finally:
+            connection.close()
+
+    def test_opens_existing_v1_cache_file_without_using_its_entries(self, tmpdir):
+        """
+        Tests that an existing version 1 cache file opens without errors, and that its entries,
+        which may be stale with respect to S3 Lifecycle rules, are not trusted.
+        """
+        cache_dir = tmpdir.mkdir("cache")
+        now = str(datetime.now().timestamp())
+        self._create_v1_cache(cache_dir, [("bucket/Data/v1hash", now)])
+
+        with S3CheckCache(cache_dir) as s3c:
+            assert s3c.get_entry("bucket/Data/v1hash") is None
+            assert (
+                s3c.get_connection_entry("bucket/Data/v1hash", s3c.get_local_connection()) is None
+            )
+            new_entry = S3CheckCacheEntry("bucket/Data/v2hash", now, str(float(now) + 100))
+            s3c.put_entry(new_entry)
+            assert s3c.get_entry("bucket/Data/v2hash") == new_entry
+
+    def test_v1_table_still_works_for_older_library_versions(self, tmpdir):
+        """
+        Tests that after the version 2 cache has used a file, the queries that the version 1
+        cache runs against it still succeed and see the version 1 data unchanged.
+        """
+        cache_dir = tmpdir.mkdir("cache")
+        now = str(datetime.now().timestamp())
+        self._create_v1_cache(cache_dir, [("bucket/Data/v1hash", now)])
+
+        with S3CheckCache(cache_dir) as s3c:
+            s3c.put_entry(S3CheckCacheEntry("bucket/Data/v2hash", now, str(float(now) + 100)))
+
+        connection = sqlite3.connect(os.path.join(cache_dir, f"{S3CheckCache.CACHE_NAME}.db"))
+        try:
+            # Exactly the statements that version 1 runs.
+            connection.execute("SELECT * FROM s3checkV1")
+            with connection:
+                connection.execute(
+                    "INSERT OR REPLACE INTO s3checkV1 VALUES(:s3_key, :last_seen_time)",
+                    {"s3_key": "bucket/Data/another", "last_seen_time": now},
+                )
+            rows = connection.execute(
+                "SELECT * FROM s3checkV1 WHERE s3_key=?", ["bucket/Data/v1hash"]
+            ).fetchall()
+            assert rows == [("bucket/Data/v1hash", float(now))]
+            assert connection.execute("SELECT COUNT(*) FROM s3checkV1").fetchone() == (2,)
+        finally:
+            connection.close()
+
+    def test_v1_cache_can_reopen_file_created_by_v2(self, tmpdir):
+        """
+        Tests that a file first created by the version 2 cache doesn't break an older library
+        version, which creates its own table on first use.
+        """
+        cache_dir = tmpdir.mkdir("cache")
+        with S3CheckCache(cache_dir) as s3c:
+            s3c.put_entry(S3CheckCacheEntry("bucket/Data/v2hash", str(datetime.now().timestamp())))
+
+        connection = sqlite3.connect(os.path.join(cache_dir, f"{S3CheckCache.CACHE_NAME}.db"))
+        try:
+            with pytest.raises(sqlite3.OperationalError):
+                connection.execute("SELECT * FROM s3checkV1")
+            # This is what version 1 does when its table is missing.
+            connection.execute(self.V1_CREATE)
+            assert connection.execute("SELECT * FROM s3checkV1").fetchall() == []
+        finally:
+            connection.close()
+
+        with S3CheckCache(cache_dir) as s3c:
+            assert s3c.get_entry("bucket/Data/v2hash") is not None
