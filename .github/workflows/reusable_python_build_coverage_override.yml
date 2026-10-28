@@ -33,6 +33,9 @@ jobs:
       contents: read
     env:
       PYTHON: ${{ inputs.python-version }}
+      # hatch builds its envs with pip, and pip 25.0.1 (the last for 3.8) cannot retry or resume
+      # a download that stalls mid-body, so PIP_RETRIES would not help here.
+      PIP_DEFAULT_TIMEOUT: "60"
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       if: ${{ !inputs.branch && !inputs.commit && !inputs.ref }}
@@ -67,6 +70,8 @@ jobs:
       uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
       with:
         python-version: ${{ inputs.python-version }}
+        cache: pip
+        cache-dependency-path: requirements-testing.txt
 
     - name: Install Hatch
       run: |
