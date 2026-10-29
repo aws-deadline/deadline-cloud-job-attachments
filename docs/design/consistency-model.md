@@ -18,7 +18,7 @@ Ordering is only guaranteed where the job structure states it:
 - **Step dependencies.** A step that depends on another step sees all of that step's outputs.
 - **Reruns of the same task.** A newer successful run of a task supersedes the older runs.
 
-Keeping the model this loose means workers never coordinate with each other, there are no locks, and stored objects are written once. That keeps job attachments cheap and lets them scale with the size of the farm.
+Keeping the model this loose means workers never coordinate with each other, there are no locks, and stored objects are written once. That lets job attachments scale with the size of the farm.
 
 ## Invariants
 
@@ -75,7 +75,7 @@ For each asset root, the manifest is written before the files it references (`S3
 - **Clock skew between workers.** This breaks *reruns supersede* for readers that list S3. The timestamp in the output manifest key comes from the worker's clock, so two runs of the same task on different workers can be ordered wrongly if the clock difference is bigger than the gap between the runs. Task-level output download isn't affected, because it selects the run by `latestSessionActionId` from the service.
 - **Chunked steps don't select a latest run.** This breaks *reruns supersede*.
   - **Merging every run:** steps that use task chunking have no per-task folder, so readers merge every run's manifests in the step. Files written only by an earlier run survive.
-  - **Matching by session action ID:** when looking up outputs by session action ID, the step prefix is matched against a pattern with no end delimiter. An ID such as `sessionaction-X-1` therefore also matches `sessionaction-X-10` and later actions in the same session, which pulls in other chunks' outputs.
+  - **Matching by session action ID:** a session action ID has the form `sessionaction-<hex>-<n>`. The hex part is shared by every action in a session, and `n` counts up by one per action. Looking up outputs by session action ID matches the ID as a substring with no end delimiter, and for chunked steps it searches the whole step prefix. In a session that runs more than ten actions, `sessionaction-<hex>-1` also matches `-10` through `-19`, `-100`, and so on, which pulls in the outputs of other chunks from the same session.
 - **Dependency outputs are copied next to inputs in copied mode.** This breaks *layering*.
   - **How it happens:** in the worker agent, job inputs and dependency outputs are downloaded in separate actions into the same local root. The default conflict resolution is `CREATE_COPY`.
   - **Effect:** if a dependency step modifies an input file, the downstream task sees the original at the original path and the dependency's version at a renamed path such as `scene (1).exr`.
