@@ -5,6 +5,7 @@ import os
 import stat
 import sys
 from pathlib import Path
+from typing import Dict
 from unittest.mock import patch
 
 import pytest
@@ -40,13 +41,18 @@ def _info() -> SessionJobAttachmentsInfo:
     )
 
 
-def test_to_dict() -> None:
+def test_version() -> None:
+    assert SESSION_INFO_VERSION == "ja-session-info-1.0"
+
+
+def test_to_dict_writes_every_key() -> None:
     assert _info().to_dict() == {
         "version": SESSION_INFO_VERSION,
         "roots": [
             {
                 "rootPath": "/home/artist/project",
                 "rootPathFormat": "posix",
+                "fileSystemLocationName": None,
                 "localRootPath": "/sessions/session-0123/assetroot-abc",
                 "outputRelativeDirectories": ["renders/beauty", "comp"],
                 "localOutputDirectories": [
@@ -57,10 +63,10 @@ def test_to_dict() -> None:
             {
                 "rootPath": "C:\\projects\\shared",
                 "rootPathFormat": "windows",
+                "fileSystemLocationName": "Shared",
                 "localRootPath": "/mnt/shared",
                 "outputRelativeDirectories": [],
                 "localOutputDirectories": [],
-                "fileSystemLocationName": "Shared",
             },
         ],
     }
@@ -71,9 +77,9 @@ def test_round_trip() -> None:
     assert SessionJobAttachmentsInfo.from_dict(json.loads(json.dumps(info.to_dict()))) == info
 
 
-def test_from_dict_accepts_newer_minor_version_and_unknown_keys() -> None:
+def test_from_dict_accepts_newer_minor_version_unknown_keys_and_missing_optional_keys() -> None:
     data = {
-        "version": "jobattachments-session-info-1.7",
+        "version": "ja-session-info-1.7",
         "futureTopLevelKey": True,
         "roots": [
             {
@@ -94,67 +100,56 @@ def test_from_dict_accepts_newer_minor_version_and_unknown_keys() -> None:
     ]
 
 
+def _root(**overrides: object) -> Dict[str, object]:
+    root: Dict[str, object] = {
+        "rootPath": "/p",
+        "rootPathFormat": "posix",
+        "fileSystemLocationName": None,
+        "localRootPath": "/s",
+        "outputRelativeDirectories": [],
+    }
+    root.update(overrides)
+    return root
+
+
 @pytest.mark.parametrize(
     "data",
     [
         [],
         {"roots": []},
         {"version": "pathmapping-1.0", "roots": []},
-        {"version": "jobattachments-session-info-2.0", "roots": []},
+        {"version": "jobattachments-session-info-1.0", "roots": []},
+        {"version": "ja-session-info-2.0", "roots": []},
         {"version": SESSION_INFO_VERSION},
-        {"version": SESSION_INFO_VERSION, "roots": [{"rootPath": "/project"}]},
         {"version": SESSION_INFO_VERSION, "roots": None},
-        {
-            "version": SESSION_INFO_VERSION,
-            "roots": [{"rootPath": "/p", "rootPathFormat": "amiga", "localRootPath": "/s"}],
-        },
         {"version": SESSION_INFO_VERSION, "roots": {"rootPath": "/p"}},
-        {
-            "version": SESSION_INFO_VERSION,
-            "roots": [{"rootPath": 1, "rootPathFormat": "posix", "localRootPath": "/s"}],
-        },
-        {
-            "version": SESSION_INFO_VERSION,
-            "roots": [{"rootPath": "/p", "rootPathFormat": "posix", "localRootPath": None}],
-        },
-        {
-            "version": SESSION_INFO_VERSION,
-            "roots": [
-                {
-                    "rootPath": "/p",
-                    "rootPathFormat": "posix",
-                    "localRootPath": "/s",
-                    "fileSystemLocationName": 3,
-                }
-            ],
-        },
-        {
-            "version": SESSION_INFO_VERSION,
-            "roots": [
-                {
-                    "rootPath": "/p",
-                    "rootPathFormat": "posix",
-                    "localRootPath": "/s",
-                    "outputRelativeDirectories": "renders",
-                }
-            ],
-        },
-        {
-            "version": SESSION_INFO_VERSION,
-            "roots": [
-                {
-                    "rootPath": "/p",
-                    "rootPathFormat": "posix",
-                    "localRootPath": "/s",
-                    "outputRelativeDirectories": ["renders", 1],
-                }
-            ],
-        },
+        {"version": SESSION_INFO_VERSION, "roots": [{"rootPath": "/project"}]},
+        {"version": SESSION_INFO_VERSION, "roots": [_root(rootPathFormat="amiga")]},
+        {"version": SESSION_INFO_VERSION, "roots": [_root(rootPath=1)]},
+        {"version": SESSION_INFO_VERSION, "roots": [_root(localRootPath=None)]},
+        {"version": SESSION_INFO_VERSION, "roots": [_root(fileSystemLocationName=3)]},
+        {"version": SESSION_INFO_VERSION, "roots": [_root(outputRelativeDirectories="renders")]},
+        {"version": SESSION_INFO_VERSION, "roots": [_root(outputRelativeDirectories=None)]},
+        {"version": SESSION_INFO_VERSION, "roots": [_root(outputRelativeDirectories=["r", 1])]},
     ],
 )
 def test_from_dict_rejects_unreadable_data(data) -> None:
     with pytest.raises(ValueError):
         SessionJobAttachmentsInfo.from_dict(data)
+
+
+def test_from_dict_ignores_local_output_directories() -> None:
+    root = _info().roots[0]
+    data = root.to_dict()
+    data["localOutputDirectories"] = ["/somewhere/else"]
+    assert SessionAssetRoot.from_dict(data) == root
+
+
+def test_from_dict_leaves_out_directories_outside_root() -> None:
+    root = SessionAssetRoot.from_dict(
+        _root(outputRelativeDirectories=["../outside", "/etc", "a/../../b", "inside/./x"])
+    )
+    assert root.output_relative_directories == ["inside/x"]
 
 
 def test_from_manifest_properties() -> None:
@@ -184,25 +179,26 @@ def test_from_manifest_properties_without_outputs() -> None:
 
 
 @pytest.mark.parametrize(
-    ("root_path_format", "output_dir", "expected_parts"),
+    ("root_path_format", "output_dir", "expected"),
     [
-        (PathFormat.POSIX, "renders/beauty", ["renders", "beauty"]),
-        (PathFormat.WINDOWS, "renders\\beauty", ["renders", "beauty"]),
-        (PathFormat.POSIX, ".", []),
+        (PathFormat.POSIX, "renders/beauty", "renders/beauty"),
+        (PathFormat.POSIX, "renders//beauty/", "renders/beauty"),
+        (PathFormat.POSIX, "./renders/../comp", "comp"),
+        (PathFormat.POSIX, ".", "."),
+        (PathFormat.POSIX, "", "."),
+        (PathFormat.WINDOWS, "renders\\beauty", "renders/beauty"),
+        (PathFormat.WINDOWS, "renders/beauty", "renders/beauty"),
+        (PathFormat.WINDOWS, "renders\\..\\comp", "comp"),
     ],
 )
-def test_local_output_directories(
-    tmp_path: Path, root_path_format: PathFormat, output_dir: str, expected_parts
+def test_from_manifest_properties_normalizes_output_directories(
+    root_path_format: PathFormat, output_dir: str, expected: str
 ) -> None:
-    root = SessionAssetRoot(
-        root_path="/project",
-        root_path_format=root_path_format,
-        local_root_path=str(tmp_path),
-        output_relative_directories=[output_dir],
+    manifest_properties = ManifestProperties(
+        rootPath="/project", rootPathFormat=root_path_format, outputRelativeDirectories=[output_dir]
     )
-    assert root.local_output_directories() == [
-        os.path.normpath(os.path.join(str(tmp_path), *expected_parts))
-    ]
+    root = SessionAssetRoot.from_manifest_properties(manifest_properties, "/local")
+    assert root.output_relative_directories == [expected]
 
 
 @pytest.mark.parametrize(
@@ -213,26 +209,40 @@ def test_local_output_directories(
         (PathFormat.POSIX, "/etc"),
         (PathFormat.WINDOWS, "..\\..\\outside"),
         (PathFormat.WINDOWS, "C:\\absolute"),
+        (PathFormat.WINDOWS, "C:relative-to-drive"),
+        (PathFormat.WINDOWS, "\\rooted"),
         (PathFormat.WINDOWS, "\\\\server\\share"),
     ],
 )
-def test_local_output_directories_skips_paths_outside_root(
-    tmp_path: Path, root_path_format: PathFormat, output_dir: str
+def test_from_manifest_properties_leaves_out_directories_outside_root(
+    root_path_format: PathFormat, output_dir: str
 ) -> None:
-    root = SessionAssetRoot(
-        root_path="/project",
-        root_path_format=root_path_format,
-        local_root_path=str(tmp_path / "root"),
-        output_relative_directories=[output_dir, "inside"],
+    manifest_properties = ManifestProperties(
+        rootPath="/project",
+        rootPathFormat=root_path_format,
+        outputRelativeDirectories=[output_dir, "inside"],
     )
-    assert root.local_output_directories() == [os.path.normpath(str(tmp_path / "root" / "inside"))]
+    root = SessionAssetRoot.from_manifest_properties(manifest_properties, "/local")
+    assert root.output_relative_directories == ["inside"]
 
 
-def test_from_dict_ignores_local_output_directories() -> None:
-    root = _info().roots[0]
-    data = root.to_dict()
-    data["localOutputDirectories"] = ["/somewhere/else"]
-    assert SessionAssetRoot.from_dict(data) == root
+@pytest.mark.parametrize(
+    ("output_dir", "expected_parts"),
+    [
+        ("renders/beauty", ["renders", "beauty"]),
+        (".", []),
+    ],
+)
+def test_local_output_directories(tmp_path: Path, output_dir: str, expected_parts) -> None:
+    root = SessionAssetRoot(
+        root_path="C:\\project",
+        root_path_format=PathFormat.WINDOWS,
+        local_root_path=str(tmp_path),
+        output_relative_directories=[output_dir],
+    )
+    assert root.local_output_directories() == [
+        os.path.normpath(os.path.join(str(tmp_path), *expected_parts))
+    ]
 
 
 def test_write_and_read(tmp_path: Path) -> None:
@@ -244,13 +254,14 @@ def test_write_and_read(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes")
-def test_write_honors_umask(tmp_path: Path) -> None:
-    old_umask = os.umask(0o027)
+@pytest.mark.parametrize(("umask", "expected_mode"), [(0o022, 0o644), (0o077, 0o600)])
+def test_write_file_mode(tmp_path: Path, umask: int, expected_mode: int) -> None:
+    old_umask = os.umask(umask)
     try:
         path = write_session_info(_info(), tmp_path)
     finally:
         os.umask(old_umask)
-    assert stat.S_IMODE(path.stat().st_mode) == 0o640
+    assert stat.S_IMODE(path.stat().st_mode) == expected_mode
 
 
 def test_write_failure_removes_temporary_file(tmp_path: Path) -> None:

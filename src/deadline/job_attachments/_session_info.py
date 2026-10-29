@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+import posixpath
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -19,10 +20,10 @@ SESSION_INFO_ENV_VAR = "DEADLINE_JA_SESSION_INFO_FILE"
 SESSION_INFO_FILE_NAME = "job_attachments_session_info.json"
 """The name of the session job attachments info file in the session working directory."""
 
-SESSION_INFO_VERSION = "jobattachments-session-info-1.0"
+SESSION_INFO_VERSION = "ja-session-info-1.0"
 """The version of the session job attachments info file format that this library writes."""
 
-_VERSION_PREFIX = "jobattachments-session-info-"
+_VERSION_PREFIX = "ja-session-info-"
 
 
 @dataclass
@@ -38,66 +39,61 @@ class SessionAssetRoot:
     file_system_location_name: Optional[str] = None
     """The storage profile file system location of the root, if it has one."""
     output_relative_directories: List[str] = field(default_factory=list)
-    """The output directories of the job, relative to the root, in the root's path format."""
+    """The output directories of the job, relative to the root, with `/` separators."""
 
     @classmethod
     def from_manifest_properties(
         cls, manifest_properties: ManifestProperties, local_root_path: str
     ) -> SessionAssetRoot:
-        """Create a session asset root from a job's manifest properties and its local root path."""
+        """
+        Create a session asset root from a job's manifest properties and its local root path.
+
+        The output directories are converted to `/` separators. Output directories that are
+        absolute or outside the root are left out.
+        """
         return cls(
             root_path=manifest_properties.rootPath,
             root_path_format=manifest_properties.rootPathFormat,
             local_root_path=local_root_path,
             file_system_location_name=manifest_properties.fileSystemLocationName,
-            output_relative_directories=list(manifest_properties.outputRelativeDirectories or []),
+            output_relative_directories=_normalize_relative_directories(
+                manifest_properties.outputRelativeDirectories or [],
+                manifest_properties.rootPathFormat,
+            ),
         )
 
     def local_output_directories(self) -> List[str]:
-        """
-        Return the absolute paths of the output directories on the worker host.
-
-        Output directories that are absolute or resolve outside the root are left out.
-        """
-        pure_path = (
-            PureWindowsPath if self.root_path_format == PathFormat.WINDOWS else PurePosixPath
-        )
+        """Return the absolute paths of the output directories on the worker host."""
         local_root = os.path.normpath(self.local_root_path)
-        result = []
-        for directory in self.output_relative_directories:
-            relative = pure_path(directory)
-            if relative.anchor:
-                continue
-            local_dir = os.path.normpath(os.path.join(local_root, *relative.parts))
-            if local_dir != local_root and not local_dir.startswith(os.path.join(local_root, "")):
-                continue
-            result.append(local_dir)
-        return result
+        return [
+            os.path.normpath(os.path.join(local_root, *PurePosixPath(directory).parts))
+            for directory in self.output_relative_directories
+        ]
 
     def to_dict(self) -> Dict[str, Any]:
-        result: Dict[str, Any] = {
+        return {
             "rootPath": self.root_path,
             "rootPathFormat": self.root_path_format.value,
+            "fileSystemLocationName": self.file_system_location_name,
             "localRootPath": self.local_root_path,
             "outputRelativeDirectories": list(self.output_relative_directories),
             "localOutputDirectories": self.local_output_directories(),
         }
-        if self.file_system_location_name:
-            result["fileSystemLocationName"] = self.file_system_location_name
-        return result
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> SessionAssetRoot:
         """
-        Create a session asset root from its JSON form. `localOutputDirectories` is derived, so
-        it's ignored.
+        Create a session asset root from its JSON form.
+
+        `localOutputDirectories` is derived from the other keys, so it's ignored. Output
+        directories that are absolute or outside the root are left out.
         """
         root_path = _get_str(data, "rootPath")
         local_root_path = _get_str(data, "localRootPath")
         file_system_location_name = data.get("fileSystemLocationName")
         if file_system_location_name is not None and not isinstance(file_system_location_name, str):
-            raise ValueError("fileSystemLocationName must be a string")
-        output_relative_directories = data.get("outputRelativeDirectories") or []
+            raise ValueError("fileSystemLocationName must be a string or null")
+        output_relative_directories = data.get("outputRelativeDirectories", [])
         if not isinstance(output_relative_directories, list) or not all(
             isinstance(directory, str) for directory in output_relative_directories
         ):
@@ -107,8 +103,28 @@ class SessionAssetRoot:
             root_path_format=PathFormat(data["rootPathFormat"]),
             local_root_path=local_root_path,
             file_system_location_name=file_system_location_name,
-            output_relative_directories=list(output_relative_directories),
+            output_relative_directories=_normalize_relative_directories(
+                output_relative_directories, PathFormat.POSIX
+            ),
         )
+
+
+def _normalize_relative_directories(directories: List[str], path_format: PathFormat) -> List[str]:
+    """
+    Convert relative directories to normalized paths with `/` separators, leaving out directories
+    that are absolute or outside the root.
+    """
+    pure_path = PureWindowsPath if path_format == PathFormat.WINDOWS else PurePosixPath
+    result = []
+    for directory in directories:
+        relative = pure_path(directory)
+        if relative.anchor:
+            continue
+        normalized = posixpath.normpath("/".join(relative.parts) or ".")
+        if normalized == ".." or normalized.startswith("../"):
+            continue
+        result.append(normalized)
+    return result
 
 
 def _get_str(data: Dict[str, Any], key: str) -> str:
@@ -169,9 +185,9 @@ def write_session_info(
     """
     path = Path(session_dir) / SESSION_INFO_FILE_NAME
     temp_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-    # O_EXCL refuses to follow a link planted at the temporary path, and the mode honors the umask
-    # so the job user can read the file just like the other files in the session directory.
-    fd = os.open(temp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
+    # O_EXCL refuses to follow a link planted at the temporary path. The file is readable by the
+    # session directory's group so that the job user can read it.
+    fd = os.open(temp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(info.to_dict(), f, indent=2)
@@ -180,6 +196,7 @@ def write_session_info(
         try:
             os.unlink(temp_path)
         except OSError:
+            # The original exception is more useful than a failure to clean up after it.
             pass
         raise
     return path
