@@ -78,7 +78,6 @@ For each asset root, the manifest is written before the files it references (`S3
   - **How it happens:** in the worker agent, job inputs and dependency outputs are downloaded in separate actions into the same local root. The default conflict resolution is `CREATE_COPY`.
   - **Effect:** if a dependency step modifies an input file, the downstream task sees the original at the original path and the dependency's version at a renamed path such as `scene (1).exr`.
   - **Not affected:** the virtual filesystem mode merges input and dependency manifests into one before mounting.
-- **Reported manifests can go stale within a session.** This breaks *only successful runs contribute* for readers that use the manifests reported to the service, such as incremental output download. The worker agent remembers the last uploaded manifest list for the whole session and doesn't clear it. A later task in the same session that produces no outputs reports `SUCCEEDED` with the previous task's manifests.
 - **Output download doesn't follow the reader contract.** This breaks the *reader contract*.
   - **Step-level and job-level download:** these list S3 the same way workers do, so the gaps above apply even after the job finishes.
   - **Task-level download:** this uses `latestSessionActionId` without checking the run's status. If the latest run failed in its task script, it returns nothing, although an older successful run exists. If the latest run is still uploading, it can find a manifest before its files exist.
