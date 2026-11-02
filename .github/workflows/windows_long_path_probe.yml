@@ -10,6 +10,7 @@
 #   * manifest snapshot and read-back at a long destination, end to end
 #   * unresolved relative paths from the CLI, on both the read and write sides
 #   * the snapshot Data directory creation
+#   * "." components in snapshot include and exclude globs
 #
 # It runs the same probe under two interpreters on a runner where LongPathsEnabled is
 # already ON (GitHub sets it in the base image):

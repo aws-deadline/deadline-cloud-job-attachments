@@ -6,7 +6,12 @@ from deadline.job_attachments._utils import WINDOWS_UNC_PATH_STRING_PREFIX
 from deadline.job_attachments.exceptions import NonValidInputError
 import pytest
 from typing import List
-from deadline.job_attachments._glob import _glob_paths, _process_glob_inputs
+from deadline.job_attachments._glob import (
+    _drop_current_dir_components,
+    _glob_paths,
+    _match_files_with_pattern,
+    _process_glob_inputs,
+)
 
 
 def test_glob_inputs_string(glob_config_file):
@@ -123,6 +128,117 @@ def test_glob_path_exclude_nonexistent(test_glob_folder: str):
 
     # There are 2 files
     assert len(globbed_files) == 4
+
+
+@pytest.mark.parametrize(
+    ("include", "expected"),
+    [
+        pytest.param(
+            ["./**"],
+            [
+                "include.txt",
+                "exclude.txt",
+                os.path.join("nested", "nested_include.txt"),
+                os.path.join("nested", "nested_exclude.txt"),
+            ],
+            id="root",
+        ),
+        pytest.param(
+            ["./nested/**"],
+            [
+                os.path.join("nested", "nested_include.txt"),
+                os.path.join("nested", "nested_exclude.txt"),
+            ],
+            id="leading-dot",
+        ),
+        pytest.param(
+            ["nested/./**"],
+            [
+                os.path.join("nested", "nested_include.txt"),
+                os.path.join("nested", "nested_exclude.txt"),
+            ],
+            id="inner-dot",
+        ),
+    ],
+)
+def test_glob_path_include_with_dot_components(
+    test_glob_folder: str, include: List[str], expected: List[str]
+):
+    """
+    "." components in an include glob match as they did before the walk root was prefixed.
+    On Windows the \\\\?\\ walk looked "." up as a literal name, so these matched nothing.
+    """
+    globbed_files: List[str] = _glob_paths(path=test_glob_folder, include=include)
+
+    assert sorted(globbed_files) == sorted(os.path.join(test_glob_folder, f) for f in expected)
+
+
+@pytest.mark.parametrize(
+    "exclude",
+    [
+        pytest.param(["./nested/**"], id="leading-dot"),
+        pytest.param(["nested/./**"], id="inner-dot"),
+    ],
+)
+def test_glob_path_exclude_with_dot_components(test_glob_folder: str, exclude: List[str]):
+    """
+    "." components in an exclude glob still exclude. On Windows the \\\\?\\ walk matched
+    nothing for them, so every file the exclude named was kept.
+    """
+    globbed_files: List[str] = _glob_paths(path=test_glob_folder, exclude=exclude)
+
+    assert sorted(globbed_files) == sorted(
+        [
+            os.path.join(test_glob_folder, "include.txt"),
+            os.path.join(test_glob_folder, "exclude.txt"),
+        ]
+    )
+
+
+@pytest.mark.parametrize(
+    ("pattern", "expected"),
+    [
+        pytest.param("./**", "**", id="leading-dot"),
+        pytest.param("./nested/**", "nested\\**", id="leading-dot-subdirectory"),
+        pytest.param("nested/./**", "nested\\**", id="inner-dot"),
+        pytest.param(".\\nested\\**", "nested\\**", id="backslashes"),
+        pytest.param(".", "", id="dot-only"),
+        pytest.param("nested/**", "nested/**", id="no-dot-unchanged"),
+        pytest.param("../outside/**", "../outside/**", id="parent-unchanged"),
+        pytest.param(".hidden/*.txt", ".hidden/*.txt", id="dot-prefixed-name-unchanged"),
+    ],
+)
+def test_drop_current_dir_components(pattern: str, expected: str):
+    assert _drop_current_dir_components(pattern) == expected
+
+
+def test_match_files_drops_dot_components_under_an_extended_length_root(monkeypatch):
+    seen_patterns: List[str] = []
+
+    def fake_glob(pattern: str, recursive: bool = False) -> List[str]:
+        seen_patterns.append(pattern)
+        return []
+
+    monkeypatch.setattr("deadline.job_attachments._glob.glob.glob", fake_glob)
+    base_path = WINDOWS_UNC_PATH_STRING_PREFIX + "C:\\root"
+
+    _match_files_with_pattern(base_path, ["./**", "nested/**"])
+
+    assert seen_patterns == [os.path.join(base_path, "**"), os.path.join(base_path, "nested/**")]
+
+
+def test_match_files_leaves_patterns_alone_under_a_plain_root(monkeypatch, tmp_path):
+    seen_patterns: List[str] = []
+
+    def fake_glob(pattern: str, recursive: bool = False) -> List[str]:
+        seen_patterns.append(pattern)
+        return []
+
+    monkeypatch.setattr("deadline.job_attachments._glob.glob.glob", fake_glob)
+
+    _match_files_with_pattern(str(tmp_path), ["./**"])
+
+    assert seen_patterns == [os.path.join(str(tmp_path), "./**")]
 
 
 class TestGlobPathsWalkPrefix:

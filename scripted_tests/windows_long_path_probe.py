@@ -694,6 +694,56 @@ def probe_snapshot_data_dir(work_dir: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+def probe_manifest_snapshot_dot_component_globs(work_dir: str) -> None:
+    r"""
+    `_glob_paths` joins include and exclude globs onto the \\?\ walk root, which Windows
+    passes to the file system without normalization. A "." component in a glob, as in the
+    worker's "./**" for an output directory that is the asset root, was looked up as a
+    literal name: the include matched nothing, so the snapshot returned None, and an exclude
+    with a "." component excluded nothing.
+    """
+    root = os.path.join(work_dir, "dot-globs")
+    destination = os.path.join(work_dir, "dot-globs-dest")
+    try:
+        for relative_path in (
+            "top.txt",
+            os.path.join("sub", "nested.txt"),
+            os.path.join("skip", "skipped.txt"),
+        ):
+            file_path = os.path.join(root, relative_path)
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            with open(file_path, "w") as fh:
+                fh.write("data")
+        os.makedirs(destination, exist_ok=True)
+
+        snapshot: Optional[ManifestSnapshot] = _manifest_snapshot(
+            root=root,
+            destination=destination,
+            name="probe",
+            include=["./**"],
+            exclude=["./skip/**"],
+        )
+        check(
+            snapshot is not None,
+            'The include glob "./**" matched no files. This is the '
+            "output-sync-reports-success-but-uploads-nothing failure mode.",
+        )
+        assert snapshot is not None  # for mypy
+
+        manifests = _read_manifests([snapshot.manifest])
+        recorded = sorted(p.path for p in next(iter(manifests.values())).paths)
+        check(
+            recorded == ["sub/nested.txt", "top.txt"],
+            f'Expected "./**" minus "./skip/**" to record sub/nested.txt and top.txt; '
+            f"paths={recorded!r}",
+        )
+
+        print('  "." components matched in both the include and the exclude glob')
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+        shutil.rmtree(destination, ignore_errors=True)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -795,6 +845,10 @@ def main() -> int:
             lambda: probe_unresolved_relative_paths(args.work_dir),
         ),
         ("snapshot Data directory creation", lambda: probe_snapshot_data_dir(args.work_dir)),
+        (
+            'manifest snapshot honors "." in include and exclude globs',
+            lambda: probe_manifest_snapshot_dot_component_globs(args.work_dir),
+        ),
     ]
     if args.unc_root:
         probes.insert(3, ("long UNC path", lambda: probe_unc_long_path(args.unc_root)))
