@@ -3,14 +3,23 @@
 import os
 import glob
 import json
+import re
 from pathlib import Path
 from typing import List, Optional
 from deadline.job_attachments._utils import (
+    WINDOWS_PATH_SEPARATOR,
+    WINDOWS_UNC_PATH_STRING_PREFIX,
     _as_extended_length_path,
     _normalize_windows_path,
 )
 from deadline.job_attachments.exceptions import NonValidInputError
 from deadline.job_attachments.models import GlobConfig
+
+_CURRENT_DIR_COMPONENT = "."
+"""
+The current-directory component. Spelled out rather than taken from os.curdir because
+these helpers rewrite Windows glob patterns.
+"""
 
 
 def _process_glob_inputs(glob_arg_input: str) -> GlobConfig:
@@ -47,6 +56,29 @@ def _process_glob_inputs(glob_arg_input: str) -> GlobConfig:
     return glob_config
 
 
+def _drop_current_dir_components(pattern: str) -> str:
+    r"""
+    Remove "." components from a glob pattern that will be joined onto a \\?\ walk root.
+
+    Windows passes an extended-length path to the file system without normalizing it, so a
+    "." component is looked up as a literal name and the pattern matches nothing. Before the
+    walk root carried the prefix, Win32 normalization dropped these components. A pattern
+    without a "." component is returned unchanged, and ".." is left as written.
+
+    Args:
+        pattern: Glob pattern relative to the walk root, using either path separator
+
+    Returns:
+        The pattern without "." components
+    """
+    components = re.split(r"[\\/]", pattern)
+    if _CURRENT_DIR_COMPONENT not in components:
+        return pattern
+    return WINDOWS_PATH_SEPARATOR.join(
+        component for component in components if component != _CURRENT_DIR_COMPONENT
+    )
+
+
 def _match_files_with_pattern(base_path: str, patterns: List[str]) -> set:
     """
     Helper function to match files based on glob patterns.
@@ -59,7 +91,11 @@ def _match_files_with_pattern(base_path: str, patterns: List[str]) -> set:
         Set of normalized file paths that match the patterns
     """
     matched_files = set()
+    walks_extended_length_root = base_path.startswith(WINDOWS_UNC_PATH_STRING_PREFIX)
     for pattern in patterns:
+        if walks_extended_length_root:
+            pattern = _drop_current_dir_components(pattern)
+
         # Make pattern relative to base path
         full_pattern = os.path.join(base_path, pattern)
 
