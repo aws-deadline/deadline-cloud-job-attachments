@@ -1,3 +1,7 @@
+## 0.1.6 (2026-11-03)
+
+### Bug Fixes
+* Fixed a Windows-only problem where include and exclude glob patterns containing a "." path component, such as "./**" or "./cache/**", matched nothing. Since 0.1.4, an include like "./**" could produce an empty snapshot that still reported success, so outputs were not uploaded. An exclude like "./cache/**" excluded nothing. These patterns now match as expected. (#102)
 ## 0.1.5 (2026-09-29)
 
 ### Bug Fixes
