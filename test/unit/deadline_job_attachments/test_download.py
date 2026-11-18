@@ -22,6 +22,7 @@ from unittest.mock import MagicMock, call, patch
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError, ReadTimeoutError
 from botocore.stub import Stubber
+from s3transfer.utils import OSUtils
 
 import pytest
 
@@ -59,11 +60,11 @@ from deadline.job_attachments.download import (
     VFS_MANIFEST_FOLDER_IN_SESSION,
     VFS_MANIFEST_FOLDER_PERMISSIONS,
     VFS_LOGS_FOLDER_IN_SESSION,
-    WINDOWS_MAX_PATH_LENGTH,
-    TEMP_DOWNLOAD_ADDED_CHARS_LENGTH,
 )
 from deadline.job_attachments import download
 from deadline.job_attachments._utils import (
+    TEMP_DOWNLOAD_ADDED_CHARS_LENGTH,
+    WINDOWS_MAX_PATH_LENGTH,
     WINDOWS_UNC_PATH_STRING_PREFIX,
     _get_long_path_compatible_path,
 )
@@ -3361,3 +3362,235 @@ def test_set_fs_permission_prefixes_both_files_and_directories(tmp_path: Path):
         shutil.rmtree(
             WINDOWS_UNC_PATH_STRING_PREFIX + str(first_long_component), ignore_errors=True
         )
+
+
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="The extended-length prefix and MAX_PATH failure mode are Windows-only.",
+)
+def test_download_file_extended_length_survives_boto3_write_then_rename(tmp_path: Path):
+    r"""
+    Reproduces the failure shape in worker-agent#520's traceback end-to-end at the
+    entry point where the reporter actually landed. s3transfer downloads a file by
+    writing to a `<fileobj>.<8-hex>` temp next to the destination and then
+    `os.replace`ing it onto the final name. If `download_file` passes an unprefixed
+    long path as `fileobj`, the temp write fails with WinError 3 on a non-longPathAware
+    host -- exactly the ``.f307214C`` failure the issue reports.
+
+    `download_file` wraps its destination in `_get_long_path_compatible_path` (introduced
+    in #67 and un-gated from the registry check in that same PR), so the temp write
+    inherits the ``\\?\`` prefix and the rename lands the file. This test pins that
+    pipeline in the unit suite; complements `test_download_summary_paths_do_not_carry_the_unc_prefix`,
+    which pins the corresponding strip at the surface.
+    """
+    long_dir = tmp_path
+    while len(str(long_dir)) < WINDOWS_MAX_PATH_LENGTH:
+        long_dir = long_dir / ("d" * 10)
+    first_long_component = tmp_path / long_dir.relative_to(tmp_path).parts[0]
+    os.makedirs(WINDOWS_UNC_PATH_STRING_PREFIX + str(long_dir), exist_ok=True)
+
+    received_fileobjs: List[str] = []
+    payload = b"downloaded contents"
+
+    def fake_download(bucket, key, fileobj, subscribers):
+        # Temp name from s3transfer's own OSUtils so the fake writes against
+        # s3transfer's actual shape rather than a hard-coded literal. This does NOT
+        # by itself catch drift in the suffix length --
+        # `test_temp_download_added_chars_length_mirrors_s3transfer_suffix` at the
+        # bottom of this file is the pin that fails when s3transfer's suffix changes.
+        received_fileobjs.append(fileobj)
+        temp_path = OSUtils().get_temp_filename(fileobj)
+        with open(temp_path, "wb") as fh:
+            fh.write(payload)
+        os.replace(temp_path, fileobj)
+        future = MagicMock()
+        future.result.return_value = None
+        return future
+
+    mock_transfer_manager = MagicMock()
+    mock_transfer_manager.download.side_effect = fake_download
+
+    file_path = ManifestPathv2023_03_03(
+        path="scene.ma", hash="filehash", size=len(payload), mtime=1234000000
+    )
+
+    try:
+        with patch(
+            f"{deadline.__package__}.job_attachments.download.get_s3_transfer_manager",
+            return_value=mock_transfer_manager,
+        ):
+            download_file(
+                file_path,
+                HashAlgorithm.XXH128,
+                str(long_dir),
+                Lock(),
+                MagicMock(),  # collision_file_dict
+                "test-bucket",
+                "rootPrefix/Data",
+                MagicMock(),  # s3_client (non-None short-circuits get_s3_client)
+            )
+
+        assert len(received_fileobjs) == 1
+        fileobj = received_fileobjs[0]
+
+        # The fileobj s3transfer receives must be extended-length: otherwise the
+        # `.f307214C` temp write above is a plain long path and Windows rejects it
+        # under any non-longPathAware host. This is precisely the failure the
+        # #520 reporter hit.
+        assert fileobj.startswith(WINDOWS_UNC_PATH_STRING_PREFIX), (
+            f"download_file must pass the extended-length form to s3transfer so the "
+            f"temp write inherits the prefix. Got: {fileobj[:60]}"
+        )
+        assert len(fileobj) > WINDOWS_MAX_PATH_LENGTH, (
+            f"Destination was not long enough to exercise the prefix: {len(fileobj)} chars"
+        )
+
+        # And the rename must have landed the file at the final destination.
+        final = _get_long_path_compatible_path(long_dir / "scene.ma")
+        assert final.is_file(), f"Expected {final} to exist after download"
+        with open(final, "rb") as fh:
+            assert fh.read() == payload
+    finally:
+        shutil.rmtree(
+            WINDOWS_UNC_PATH_STRING_PREFIX + str(first_long_component), ignore_errors=True
+        )
+
+
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="The extended-length prefix and MAX_PATH failure mode are Windows-only.",
+)
+@pytest.mark.parametrize(
+    ("final_length", "expected_prefixed"),
+    [
+        # One below the gate: final=250, temp=259. Both fit within MAX_PATH plain,
+        # so the helper must not over-eagerly prefix.
+        (WINDOWS_MAX_PATH_LENGTH - TEMP_DOWNLOAD_ADDED_CHARS_LENGTH - 1, False),
+        # Exactly at the gate: final=251, temp=260. The temp is the first name that
+        # crosses MAX_PATH; the helper must prefix here or the write fails on a
+        # non-longPathAware host.
+        (WINDOWS_MAX_PATH_LENGTH - TEMP_DOWNLOAD_ADDED_CHARS_LENGTH, True),
+        # Top of the transition window: final=259 is legal on its own but temp=268
+        # is not. The helper must still prefix.
+        (WINDOWS_MAX_PATH_LENGTH - 1, True),
+    ],
+    ids=["below_gate_250", "at_gate_251", "top_of_transition_259"],
+)
+def test_download_file_prefix_gate_boundary(
+    tmp_path: Path, final_length: int, expected_prefixed: bool
+):
+    r"""
+    Pins the ``+ TEMP_DOWNLOAD_ADDED_CHARS_LENGTH`` allowance in
+    ``_get_long_path_compatible_path``. s3transfer appends a ``.<8-hex>`` (9-char)
+    temp suffix to ``fileobj`` before renaming to the final name -- so the gate
+    must prefix whenever ``len(dest) + 9 >= MAX_PATH``, not just when
+    ``len(dest) >= MAX_PATH``. An off-by-one that dropped the ``+ 9`` would leave
+    a 260-char temp file written in plain form, which is precisely the #520
+    failure shape on a non-longPathAware host.
+
+    Complements ``test_download_file_extended_length_survives_boto3_write_then_rename``
+    (which pins the well-past-MAX_PATH case) by exercising the transition window
+    where the final name is legal on its own but the temp isn't.
+    """
+    filename = "scene.ma"
+    # Build a destination whose length is exactly `final_length` chars:
+    #   len(tmp_path) + sep + len(subdir) + sep + len(filename) == final_length
+    subdir_length = final_length - len(str(tmp_path)) - len(filename) - 2
+    if subdir_length <= 0:
+        pytest.skip(
+            f"tmp_path is too long ({len(str(tmp_path))}) to construct a "
+            f"{final_length}-char destination"
+        )
+    long_dir = tmp_path / ("d" * subdir_length)
+    dest_path = long_dir / filename
+    assert len(str(dest_path)) == final_length, (
+        f"Path-construction bug: got {len(str(dest_path))} chars, expected {final_length}"
+    )
+    # Setup uses an explicit prefix so it never depends on the process being aware.
+    os.makedirs(WINDOWS_UNC_PATH_STRING_PREFIX + str(long_dir), exist_ok=True)
+
+    received_fileobjs: List[str] = []
+    payload = b"boundary"
+
+    def fake_download(bucket, key, fileobj, subscribers):
+        # Temp name from s3transfer's own OSUtils; suffix-length drift is pinned
+        # separately by `test_temp_download_added_chars_length_mirrors_s3transfer_suffix`.
+        received_fileobjs.append(fileobj)
+        temp_path = OSUtils().get_temp_filename(fileobj)
+        with open(temp_path, "wb") as fh:
+            fh.write(payload)
+        os.replace(temp_path, fileobj)
+        future = MagicMock()
+        future.result.return_value = None
+        return future
+
+    mock_transfer_manager = MagicMock()
+    mock_transfer_manager.download.side_effect = fake_download
+
+    file_path = ManifestPathv2023_03_03(
+        path=filename, hash="filehash", size=len(payload), mtime=1234000000
+    )
+
+    try:
+        with patch(
+            f"{deadline.__package__}.job_attachments.download.get_s3_transfer_manager",
+            return_value=mock_transfer_manager,
+        ):
+            download_file(
+                file_path,
+                HashAlgorithm.XXH128,
+                str(long_dir),
+                Lock(),
+                MagicMock(),
+                "test-bucket",
+                "rootPrefix/Data",
+                MagicMock(),  # s3_client (non-None short-circuits get_s3_client)
+            )
+
+        assert len(received_fileobjs) == 1
+        fileobj = received_fileobjs[0]
+        actually_prefixed = fileobj.startswith(WINDOWS_UNC_PATH_STRING_PREFIX)
+        assert actually_prefixed is expected_prefixed, (
+            f"final_length={final_length}, temp_length={final_length + TEMP_DOWNLOAD_ADDED_CHARS_LENGTH}: "
+            f"expected prefixed={expected_prefixed}, got prefixed={actually_prefixed}. "
+            f"fileobj={fileobj[:80]}"
+        )
+
+        # The rename must have landed the file at each boundary point. The
+        # `actually_prefixed` assertion above is the deterministic pin of the gate
+        # arithmetic; this filesystem check catches string malformation that would
+        # slip past the prefix-startswith test -- e.g. a `\\?\` form with forward
+        # slashes still in it, or a broken join -- which fails `open`/`os.replace`
+        # even on a longPathAware runner.
+        final = _get_long_path_compatible_path(dest_path)
+        assert final.is_file(), f"Expected {final} to exist after download"
+    finally:
+        shutil.rmtree(WINDOWS_UNC_PATH_STRING_PREFIX + str(long_dir), ignore_errors=True)
+
+
+def test_temp_download_added_chars_length_mirrors_s3transfer_suffix():
+    r"""
+    Pin ``_utils.TEMP_DOWNLOAD_ADDED_CHARS_LENGTH`` to s3transfer's actual temp-suffix
+    length. The gate at ``_utils.py:220-224`` uses this constant to decide when to apply
+    the ``\\?\`` prefix; if it drifts under s3transfer's real suffix, ``download_file``
+    can hand boto3 a plain destination whose temp sibling exceeds ``MAX_PATH`` -- the
+    #520 shape. This assertion is what turns red when s3transfer moves.
+
+    A bare basename is used deliberately: ``OSUtils.get_temp_filename`` truncates at
+    ``_MAX_FILENAME_LEN - len(suffix)`` (currently 255 - 9), so the delta is only ``+9``
+    when the basename is short. ``_MAX_FILENAME_LEN`` is private and not consulted here,
+    but noted for anyone updating this test.
+
+    ``s3transfer.utils`` is not in this repo's declared dependencies -- it arrives
+    transitively via boto3. If a future boto3 bump repins s3transfer to a version
+    without ``OSUtils.get_temp_filename`` (or reshapes it), this test is where that
+    change surfaces first.
+    """
+    probe = "scene.ma"
+    delta = len(OSUtils().get_temp_filename(probe)) - len(probe)
+    assert delta == TEMP_DOWNLOAD_ADDED_CHARS_LENGTH, (
+        f"s3transfer's temp suffix is now {delta} chars, but "
+        f"_utils.TEMP_DOWNLOAD_ADDED_CHARS_LENGTH is {TEMP_DOWNLOAD_ADDED_CHARS_LENGTH}. "
+        f"Update the constant (and re-check the gate arithmetic in "
+        f"_get_long_path_compatible_path) or roll back the s3transfer bump."
+    )
