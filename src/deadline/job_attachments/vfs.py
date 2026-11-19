@@ -7,7 +7,7 @@ import subprocess
 import time
 from pathlib import Path
 import threading
-from typing import Callable, Dict, Union, Optional
+from typing import Callable, Dict, List, Union, Optional
 
 from .exceptions import (
     VFSExecutableMissingError,
@@ -274,26 +274,36 @@ class VFSProcessManager(object):
         """
         return os.path.join(os.path.dirname(VFSProcessManager.find_vfs()), "..", "link")
 
-    def build_launch_command(self, mount_point: Union[os.PathLike, str]) -> str:
+    def build_launch_command(self, mount_point: Union[os.PathLike, str]) -> List[str]:
         """
-        Build command to pass to Popen to launch VFS
+        Build the argument list to pass to Popen to launch VFS.
+
+        Each value is a separate argument, so paths containing spaces or special
+        characters reach the executable unchanged.
+
         :param mount_point: directory to mount which must be the first parameter seen by our executable
-        :return: command
+        :return: command argument list
         """
         executable = VFSProcessManager.find_vfs_launch_script()
 
-        command = (
-            f"sudo -E -u {self._os_user}"
-            f" {executable} {mount_point} -f --clienttype=deadline"
-            f" --bucket={self._asset_bucket}"
-            f" --manifest={self._manifest_path}"
-            f" --region={self._region}"
-            f" -oallow_other"
-        )
+        command = [
+            "sudo",
+            "-E",
+            "-u",
+            self._os_user,
+            str(executable),
+            str(mount_point),
+            "-f",
+            "--clienttype=deadline",
+            f"--bucket={self._asset_bucket}",
+            f"--manifest={self._manifest_path}",
+            f"--region={self._region}",
+            "-oallow_other",
+        ]
         if self._cas_prefix is not None:
-            command += f" --casprefix={self._cas_prefix}"
+            command.append(f"--casprefix={self._cas_prefix}")
         if self._asset_cache_path is not None:
-            command += f" --cachedir={self._asset_cache_path}"
+            command.append(f"--cachedir={self._asset_cache_path}")
 
         log.info(f"Got launch command {command}")
         return command
@@ -478,8 +488,6 @@ class VFSProcessManager(object):
                 stderr=subprocess.STDOUT,  # Merge stderr into the stdout pipe
                 cwd=str(self._run_path),
                 env=launch_env,
-                shell=True,
-                executable="/bin/bash",
             )
 
             self._vfs_thread = threading.Thread(

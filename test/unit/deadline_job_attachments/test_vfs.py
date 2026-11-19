@@ -86,25 +86,32 @@ class TestVFSProcessmanager:
 
         test_executable = os.environ[DEADLINE_VFS_ENV_VAR] + DEADLINE_VFS_EXECUTABLE_SCRIPT
 
-        expected_launch_command = (
-            f"sudo -E -u {test_os_user}"
-            f" {test_executable} {local_root} -f --clienttype=deadline"
-            f" --bucket={self.s3_settings.s3BucketName}"
-            f" --manifest={manifest_path}"
-            f" --region={os.environ['AWS_DEFAULT_REGION']}"
-            f" -oallow_other"
-        )
+        expected_launch_command = [
+            "sudo",
+            "-E",
+            "-u",
+            test_os_user,
+            test_executable,
+            local_root,
+            "-f",
+            "--clienttype=deadline",
+            f"--bucket={self.s3_settings.s3BucketName}",
+            f"--manifest={manifest_path}",
+            f"--region={os.environ['AWS_DEFAULT_REGION']}",
+            "-oallow_other",
+        ]
         with patch(
             f"{deadline.__package__}.job_attachments.vfs.os.path.exists",
             return_value=True,
         ):
-            assert (
-                process_manager.build_launch_command(mount_point=local_root)
-                == expected_launch_command
-            )
+            launch_command = process_manager.build_launch_command(mount_point=local_root)
+            assert isinstance(launch_command, list)
+            assert launch_command == expected_launch_command
 
-        # Create process manager with CAS prefix
+        # Create process manager with CAS prefix and a cache path so both optional
+        # flags are exercised as single argv tokens.
         test_CAS_prefix: str = "test_prefix"
+        test_cache_path: str = f"{session_dir}/cache"
         process_manager = VFSProcessManager(
             asset_bucket=self.s3_settings.s3BucketName,
             region=os.environ["AWS_DEFAULT_REGION"],
@@ -113,28 +120,84 @@ class TestVFSProcessmanager:
             os_user=test_os_user,
             os_env_vars={"AWS_PROFILE": "test-profile"},
             cas_prefix=test_CAS_prefix,
+            asset_cache_path=test_cache_path,
         )
 
         # intermediate cleanup
         VFSProcessManager.launch_script_path = None
 
-        expected_launch_command = (
-            f"sudo -E -u {test_os_user}"
-            f" {test_executable} {local_root} -f --clienttype=deadline"
-            f" --bucket={self.s3_settings.s3BucketName}"
-            f" --manifest={manifest_path}"
-            f" --region={os.environ['AWS_DEFAULT_REGION']}"
-            f" -oallow_other"
-            f" --casprefix={test_CAS_prefix}"
-        )
+        expected_launch_command = [
+            "sudo",
+            "-E",
+            "-u",
+            test_os_user,
+            test_executable,
+            local_root,
+            "-f",
+            "--clienttype=deadline",
+            f"--bucket={self.s3_settings.s3BucketName}",
+            f"--manifest={manifest_path}",
+            f"--region={os.environ['AWS_DEFAULT_REGION']}",
+            "-oallow_other",
+            f"--casprefix={test_CAS_prefix}",
+            f"--cachedir={test_cache_path}",
+        ]
         with patch(
             f"{deadline.__package__}.job_attachments.vfs.os.path.exists",
             return_value=True,
         ):
-            assert (
-                process_manager.build_launch_command(mount_point=local_root)
-                == expected_launch_command
-            )
+            launch_command = process_manager.build_launch_command(mount_point=local_root)
+            assert isinstance(launch_command, list)
+            assert launch_command == expected_launch_command
+
+    def test_build_launch_command_keeps_special_characters_in_one_argument(
+        self,
+        tmp_path: Path,
+    ):
+        """Paths with spaces or special characters are passed through unchanged."""
+        os.environ[DEADLINE_VFS_ENV_VAR] = str((Path(__file__) / "deadline_vfs").resolve())
+        session_dir: str = str(tmp_path)
+        manifest_path: str = f"{session_dir}/manifest.json"
+        test_os_user = "test-user"
+        test_executable = os.environ[DEADLINE_VFS_ENV_VAR] + DEADLINE_VFS_EXECUTABLE_SCRIPT
+
+        mount_point: str = "/tmp/asset root/it's $name; a&b `c`"
+        cas_prefix: str = "prefix with space;$x`y`"
+
+        process_manager: VFSProcessManager = VFSProcessManager(
+            asset_bucket=self.s3_settings.s3BucketName,
+            region=os.environ["AWS_DEFAULT_REGION"],
+            manifest_path=manifest_path,
+            mount_point=mount_point,
+            os_user=test_os_user,
+            os_env_vars={"AWS_PROFILE": "test-profile"},
+            cas_prefix=cas_prefix,
+        )
+
+        # intermediate cleanup
+        VFSProcessManager.launch_script_path = None
+
+        with patch(
+            f"{deadline.__package__}.job_attachments.vfs.os.path.exists",
+            return_value=True,
+        ):
+            launch_command = process_manager.build_launch_command(mount_point=mount_point)
+
+        assert launch_command == [
+            "sudo",
+            "-E",
+            "-u",
+            test_os_user,
+            test_executable,
+            mount_point,
+            "-f",
+            "--clienttype=deadline",
+            f"--bucket={self.s3_settings.s3BucketName}",
+            f"--manifest={manifest_path}",
+            f"--region={os.environ['AWS_DEFAULT_REGION']}",
+            "-oallow_other",
+            f"--casprefix={cas_prefix}",
+        ]
 
     def test_find_vfs_with_env_set(
         self,
@@ -862,14 +925,13 @@ def test_vfs_launched_in_session_folder(
         launch_command = process_manager.build_launch_command(mount_point=local_root)
         launch_env = process_manager.get_launch_environ()
 
+        assert isinstance(launch_command, list)
         mock_popen.assert_called_once_with(
             args=launch_command,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             cwd=session_dir,  # Was the session folder used as cwd
             env=launch_env,
-            shell=True,
-            executable="/bin/bash",
         )
 
 
