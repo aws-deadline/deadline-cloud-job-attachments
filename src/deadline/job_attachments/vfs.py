@@ -7,9 +7,10 @@ import subprocess
 import time
 from pathlib import Path
 import threading
-from typing import Callable, Dict, Union, Optional
+from typing import Callable, Dict, List, Tuple, Union, Optional
 
 from .exceptions import (
+    SystemCommandNotFoundError,
     VFSExecutableMissingError,
     VFSFailedToMountError,
     VFSLaunchScriptMissingError,
@@ -39,6 +40,30 @@ VFS_MANIFEST_FOLDER_PERMISSIONS = PosixFileSystemPermissionSettings(
     dir_mode=0o31,
     file_mode=0o64,
 )
+
+# Searched in order; the first executable match is used.
+_SUDO_SEARCH_DIRECTORIES: Tuple[str, ...] = (
+    # NixOS keeps the setuid wrapper here; its /usr/bin copy is missing or not setuid.
+    "/run/wrappers/bin",
+    # Standard location on most distributions, including Amazon Linux.
+    "/usr/bin",
+    # Older layouts where /bin is not merged into /usr/bin.
+    "/bin",
+)
+
+
+def _find_sudo() -> str:
+    """
+    Return the absolute path to sudo from a fixed list of system directories.
+    PATH is not used, so the result does not depend on the caller's environment.
+    """
+    for directory in _SUDO_SEARCH_DIRECTORIES:
+        candidate = os.path.join(directory, "sudo")
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    raise SystemCommandNotFoundError(
+        f"sudo was not found in any of: {', '.join(_SUDO_SEARCH_DIRECTORIES)}. PATH is not searched."
+    )
 
 
 class VFSProcessManager(object):
@@ -119,7 +144,7 @@ class VFSProcessManager(object):
         if not os.path.exists(fusermount3_path):
             log.warning(f"fusermount3 not found at {cls.find_vfs_link_dir()}")
             return None
-        return ["sudo", "-u", os_user, fusermount3_path, "-u", mount_path]
+        return [_find_sudo(), "-u", os_user, fusermount3_path, "-u", mount_path]
 
     @classmethod
     def shutdown_libfuse_mount(cls, mount_path: str, os_user: str, session_dir: Path) -> bool:
@@ -274,26 +299,36 @@ class VFSProcessManager(object):
         """
         return os.path.join(os.path.dirname(VFSProcessManager.find_vfs()), "..", "link")
 
-    def build_launch_command(self, mount_point: Union[os.PathLike, str]) -> str:
+    def build_launch_command(self, mount_point: Union[os.PathLike, str]) -> List[str]:
         """
-        Build command to pass to Popen to launch VFS
+        Build the argument list to pass to Popen to launch VFS.
+
+        Each value is a separate argument, so paths containing spaces or special
+        characters reach the executable unchanged.
+
         :param mount_point: directory to mount which must be the first parameter seen by our executable
-        :return: command
+        :return: command argument list
         """
         executable = VFSProcessManager.find_vfs_launch_script()
 
-        command = (
-            f"sudo -E -u {self._os_user}"
-            f" {executable} {mount_point} -f --clienttype=deadline"
-            f" --bucket={self._asset_bucket}"
-            f" --manifest={self._manifest_path}"
-            f" --region={self._region}"
-            f" -oallow_other"
-        )
+        command = [
+            _find_sudo(),
+            "-E",
+            "-u",
+            self._os_user,
+            str(executable),
+            str(mount_point),
+            "-f",
+            "--clienttype=deadline",
+            f"--bucket={self._asset_bucket}",
+            f"--manifest={self._manifest_path}",
+            f"--region={self._region}",
+            "-oallow_other",
+        ]
         if self._cas_prefix is not None:
-            command += f" --casprefix={self._cas_prefix}"
+            command.append(f"--casprefix={self._cas_prefix}")
         if self._asset_cache_path is not None:
-            command += f" --cachedir={self._asset_cache_path}"
+            command.append(f"--cachedir={self._asset_cache_path}")
 
         log.info(f"Got launch command {command}")
         return command
@@ -478,8 +513,6 @@ class VFSProcessManager(object):
                 stderr=subprocess.STDOUT,  # Merge stderr into the stdout pipe
                 cwd=str(self._run_path),
                 env=launch_env,
-                shell=True,
-                executable="/bin/bash",
             )
 
             self._vfs_thread = threading.Thread(
