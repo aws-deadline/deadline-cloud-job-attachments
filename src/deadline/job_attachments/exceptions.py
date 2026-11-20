@@ -172,6 +172,15 @@ class VFSOSUserNotSetError(JobAttachmentsError):
     """
 
 
+class SystemCommandNotFoundError(FileNotFoundError):
+    """
+    Exception for when a required system command is not in any of the directories searched.
+
+    A FileNotFoundError, so callers handle it the same way as a command that fails to launch
+    because it does not exist.
+    """
+
+
 class UnsupportedHashingAlgorithmError(JobAttachmentsError):
     """
     Exception for when an unsupported hashing algorithm is provided.

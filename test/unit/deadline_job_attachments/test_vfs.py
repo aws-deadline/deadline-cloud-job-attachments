@@ -16,6 +16,7 @@ import pytest
 import deadline
 from deadline.job_attachments.asset_sync import AssetSync
 from deadline.job_attachments.exceptions import (
+    SystemCommandNotFoundError,
     VFSExecutableMissingError,
     VFSLaunchScriptMissingError,
 )
@@ -30,7 +31,21 @@ from deadline.job_attachments.vfs import (
     DEADLINE_VFS_PID_FILE_NAME,
     DEADLINE_MANIFEST_GROUP_READ_PERMS,
     VFS_LOGS_FOLDER_IN_SESSION,
+    _SUDO_SEARCH_DIRECTORIES,
+    _find_sudo,
 )
+
+TEST_SUDO_PATH = "/usr/bin/sudo"
+
+
+@pytest.fixture(autouse=True)
+def stub_find_sudo():
+    """Use a fixed sudo path so tests do not depend on the host having sudo installed."""
+    with patch(
+        f"{deadline.__package__}.job_attachments.vfs._find_sudo",
+        return_value=TEST_SUDO_PATH,
+    ):
+        yield
 
 
 # TODO: Remove the skip once we support Windows for AssetSync
@@ -87,7 +102,7 @@ class TestVFSProcessmanager:
         test_executable = os.environ[DEADLINE_VFS_ENV_VAR] + DEADLINE_VFS_EXECUTABLE_SCRIPT
 
         expected_launch_command = [
-            "sudo",
+            TEST_SUDO_PATH,
             "-E",
             "-u",
             test_os_user,
@@ -127,7 +142,7 @@ class TestVFSProcessmanager:
         VFSProcessManager.launch_script_path = None
 
         expected_launch_command = [
-            "sudo",
+            TEST_SUDO_PATH,
             "-E",
             "-u",
             test_os_user,
@@ -184,7 +199,7 @@ class TestVFSProcessmanager:
             launch_command = process_manager.build_launch_command(mount_point=mount_point)
 
         assert launch_command == [
-            "sudo",
+            TEST_SUDO_PATH,
             "-E",
             "-u",
             test_os_user,
@@ -977,3 +992,71 @@ def test_vfs_has_expected_logs_folder(
         process_manager.start(tmp_path)
 
         assert process_manager.get_logs_folder() == expected_logs_folder
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="VFS doesn't currently support Windows")
+class TestFindSudo:
+    SEARCH_DIRECTORIES = f"{deadline.__package__}.job_attachments.vfs._SUDO_SEARCH_DIRECTORIES"
+
+    @staticmethod
+    def make_sudo(directory: Path, mode: int = 0o755) -> str:
+        directory.mkdir(parents=True, exist_ok=True)
+        sudo = directory / "sudo"
+        sudo.write_text("#!/bin/sh\n")
+        sudo.chmod(mode)
+        return str(sudo)
+
+    def test_returns_sudo_from_the_first_directory_that_has_it(self, tmp_path: Path):
+        empty = tmp_path / "empty"
+        empty.mkdir()
+        expected = self.make_sudo(tmp_path / "second")
+        self.make_sudo(tmp_path / "third")
+
+        directories = (str(empty), str(tmp_path / "second"), str(tmp_path / "third"))
+        with patch(self.SEARCH_DIRECTORIES, directories):
+            assert _find_sudo() == expected
+
+    def test_skips_a_sudo_that_is_not_executable(self, tmp_path: Path):
+        self.make_sudo(tmp_path / "first", mode=0o644)
+        expected = self.make_sudo(tmp_path / "second")
+
+        directories = (str(tmp_path / "first"), str(tmp_path / "second"))
+        with patch(self.SEARCH_DIRECTORIES, directories):
+            assert _find_sudo() == expected
+
+    def test_does_not_use_path(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("PATH", str(Path(self.make_sudo(tmp_path / "on_path")).parent))
+        empty = tmp_path / "empty"
+        empty.mkdir()
+
+        with patch(self.SEARCH_DIRECTORIES, (str(empty),)):
+            with pytest.raises(SystemCommandNotFoundError, match="sudo was not found"):
+                _find_sudo()
+
+    def test_not_found_error_is_a_file_not_found_error(self):
+        assert issubclass(SystemCommandNotFoundError, FileNotFoundError)
+
+    def test_searches_the_nixos_wrapper_directory_before_usr_bin(self):
+        assert _SUDO_SEARCH_DIRECTORIES.index("/run/wrappers/bin") < _SUDO_SEARCH_DIRECTORIES.index(
+            "/usr/bin"
+        )
+
+    def test_unmount_command_uses_the_resolved_sudo(self, tmp_path: Path):
+        link_dir = tmp_path / "link"
+        link_dir.mkdir()
+        (link_dir / "fusermount3").touch()
+
+        with patch(
+            f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.find_vfs_link_dir",
+            return_value=str(link_dir),
+        ):
+            shutdown_args = VFSProcessManager.get_shutdown_args("/mnt/asset-root", "test-user")
+
+        assert shutdown_args == [
+            TEST_SUDO_PATH,
+            "-u",
+            "test-user",
+            str(link_dir / "fusermount3"),
+            "-u",
+            "/mnt/asset-root",
+        ]

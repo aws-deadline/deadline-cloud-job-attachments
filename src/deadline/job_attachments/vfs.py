@@ -7,9 +7,10 @@ import subprocess
 import time
 from pathlib import Path
 import threading
-from typing import Callable, Dict, List, Union, Optional
+from typing import Callable, Dict, List, Tuple, Union, Optional
 
 from .exceptions import (
+    SystemCommandNotFoundError,
     VFSExecutableMissingError,
     VFSFailedToMountError,
     VFSLaunchScriptMissingError,
@@ -39,6 +40,30 @@ VFS_MANIFEST_FOLDER_PERMISSIONS = PosixFileSystemPermissionSettings(
     dir_mode=0o31,
     file_mode=0o64,
 )
+
+# Searched in order; the first executable match is used.
+_SUDO_SEARCH_DIRECTORIES: Tuple[str, ...] = (
+    # NixOS keeps the setuid wrapper here; its /usr/bin copy is missing or not setuid.
+    "/run/wrappers/bin",
+    # Standard location on most distributions, including Amazon Linux.
+    "/usr/bin",
+    # Older layouts where /bin is not merged into /usr/bin.
+    "/bin",
+)
+
+
+def _find_sudo() -> str:
+    """
+    Return the absolute path to sudo from a fixed list of system directories.
+    PATH is not used, so the result does not depend on the caller's environment.
+    """
+    for directory in _SUDO_SEARCH_DIRECTORIES:
+        candidate = os.path.join(directory, "sudo")
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    raise SystemCommandNotFoundError(
+        f"sudo was not found in any of: {', '.join(_SUDO_SEARCH_DIRECTORIES)}. PATH is not searched."
+    )
 
 
 class VFSProcessManager(object):
@@ -119,7 +144,7 @@ class VFSProcessManager(object):
         if not os.path.exists(fusermount3_path):
             log.warning(f"fusermount3 not found at {cls.find_vfs_link_dir()}")
             return None
-        return ["sudo", "-u", os_user, fusermount3_path, "-u", mount_path]
+        return [_find_sudo(), "-u", os_user, fusermount3_path, "-u", mount_path]
 
     @classmethod
     def shutdown_libfuse_mount(cls, mount_path: str, os_user: str, session_dir: Path) -> bool:
@@ -287,7 +312,7 @@ class VFSProcessManager(object):
         executable = VFSProcessManager.find_vfs_launch_script()
 
         command = [
-            "sudo",
+            _find_sudo(),
             "-E",
             "-u",
             self._os_user,
