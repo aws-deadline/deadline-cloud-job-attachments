@@ -17,8 +17,10 @@ import deadline
 from deadline.job_attachments.asset_sync import AssetSync
 from deadline.job_attachments.exceptions import (
     VFSExecutableMissingError,
+    VFSFailedToMountError,
     VFSLaunchScriptMissingError,
 )
+from deadline.job_attachments._system_commands import SystemCommandNotFoundError
 from deadline.job_attachments.models import JobAttachmentS3Settings
 from deadline.job_attachments.vfs import (
     VFSProcessManager,
@@ -34,6 +36,36 @@ from deadline.job_attachments.vfs import (
 
 
 # TODO: Remove the skip once we support Windows for AssetSync
+@pytest.fixture(autouse=True)
+def stub_system_command_path():
+    """Stub the trusted-path command resolver, for every test in this module.
+
+    Two reasons it is module-scoped rather than scoped to TestVFSProcessmanager:
+
+    * Command assertions pin the argv shape rather than this host's sudo and
+      findmnt locations, so a bare or hardcoded command name reappearing in the
+      source fails them.
+    * TRUSTED_SYSTEM_DIRECTORIES is a POSIX layout, so a real lookup raises on
+      Windows. TestVFSProcessmanager is skipped there, but
+      test_vfs_launched_in_session_folder and test_vfs_has_expected_logs_folder
+      are module-level and are not -- they build a launch command on Windows and
+      only care about session-folder behaviour. Without this fixture they failed
+      the windows-latest CI leg.
+
+    Both resolver entry points are stubbed. Stubbing only ``system_command_path``
+    left ``get_shutdown_args`` calling the real ``find_system_command``, so its
+    argv assertions silently stopped pinning what this docstring claims.
+    """
+    with patch(
+        f"{deadline.__package__}.job_attachments.vfs._system_command_path",
+        side_effect=lambda name: f"/trusted/{name}",
+    ) as mock_resolver, patch(
+        f"{deadline.__package__}.job_attachments.vfs._find_system_command",
+        side_effect=lambda name: f"/trusted/{name}",
+    ):
+        yield mock_resolver
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="VFS doesn't currently support Windows")
 class TestVFSProcessmanager:
     @pytest.fixture(autouse=True)
@@ -87,7 +119,7 @@ class TestVFSProcessmanager:
         test_executable = os.environ[DEADLINE_VFS_ENV_VAR] + DEADLINE_VFS_EXECUTABLE_SCRIPT
 
         expected_launch_command = (
-            f"sudo -E -u {test_os_user}"
+            f"/trusted/sudo -E -u {test_os_user}"
             f" {test_executable} {local_root} -f --clienttype=deadline"
             f" --bucket={self.s3_settings.s3BucketName}"
             f" --manifest={manifest_path}"
@@ -119,7 +151,7 @@ class TestVFSProcessmanager:
         VFSProcessManager.launch_script_path = None
 
         expected_launch_command = (
-            f"sudo -E -u {test_os_user}"
+            f"/trusted/sudo -E -u {test_os_user}"
             f" {test_executable} {local_root} -f --clienttype=deadline"
             f" --bucket={self.s3_settings.s3BucketName}"
             f" --manifest={manifest_path}"
@@ -747,6 +779,228 @@ class TestVFSProcessmanager:
             mock_chown.assert_called_with(manifest_path, group=test_os_group)
 
             mock_chmod.assert_called_with(manifest_path, DEADLINE_MANIFEST_GROUP_READ_PERMS)
+
+    def test_start_resolves_findmnt_before_launching(
+        self,
+        tmp_path: Path,
+    ):
+        """An unresolvable findmnt must fail before the VFS process is launched.
+
+        findmnt is needed after the launch, by wait_for_mount -> is_mount. Resolving
+        it there for the first time raised VFSExecutableMissingError with the VFS
+        already running, and asset_sync treats that exception as permission to fall
+        back to a copied download -- which would then write the same root as a live,
+        untracked mount.
+        """
+        # GIVEN
+        local_root: str = f"{str(tmp_path)}/assetroot-27bggh78dd2b568ab123"
+        process_manager: VFSProcessManager = VFSProcessManager(
+            asset_bucket=self.s3_settings.s3BucketName,
+            region=os.environ["AWS_DEFAULT_REGION"],
+            manifest_path=f"{local_root}/manifest.json",
+            mount_point=local_root,
+            os_user="test-user",
+            os_env_vars={"AWS_PROFILE": "test-profile"},
+        )
+
+        def resolve(name: str) -> str:
+            if name == "findmnt":
+                raise SystemCommandNotFoundError("findmnt is not installed")
+            return f"/trusted/{name}"
+
+        # WHEN
+        # Both resolver entry points raise, so the test keeps pinning this even if
+        # the production call switches between them.
+        with patch(
+            f"{deadline.__package__}.job_attachments.vfs._system_command_path",
+            side_effect=resolve,
+        ), patch(
+            f"{deadline.__package__}.job_attachments.vfs._find_system_command",
+            side_effect=resolve,
+        ), patch(
+            f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.find_vfs",
+            return_value="/test/directory/path",
+        ), patch(
+            f"{deadline.__package__}.job_attachments.vfs.os.path.exists",
+            return_value=True,
+        ), patch(
+            f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.create_mount_point",
+        ) as mock_create_mount_point, patch(
+            f"{deadline.__package__}.job_attachments.vfs.subprocess.Popen",
+        ) as mock_popen:
+            # match=, so this cannot pass on some other command failing to resolve.
+            with pytest.raises(VFSExecutableMissingError, match="findmnt"):
+                process_manager.start(tmp_path)
+
+        # THEN
+        mock_popen.assert_not_called()
+        # ...and before the mount point exists, not merely before the launch, so
+        # moving the resolve further down start() fails this too.
+        mock_create_mount_point.assert_not_called()
+
+    def test_kill_all_processes_keeps_entries_for_failed_unmount(
+        self,
+        tmp_path: Path,
+    ):
+        """A mount that failed to unmount keeps its pid entry, while the one that did
+        unmount is removed and the file itself is kept.
+
+        Removing the pid file regardless discarded the only record that the mount was
+        still up, so nothing could retry it.
+        """
+        # GIVEN
+        pid_file_path = (tmp_path / DEADLINE_VFS_PID_FILE_NAME).resolve()
+        pid_file_path.write_text("/mnt/kept:111:/manifest1.json\n/mnt/gone:222:/manifest2.json\n")
+
+        # WHEN
+        with patch(
+            f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.shutdown_libfuse_mount",
+            side_effect=lambda mount_path, os_user, session_dir: mount_path != "/mnt/kept",
+        ):
+            VFSProcessManager.kill_all_processes(tmp_path, os_user="test-user")
+
+        # THEN
+        assert pid_file_path.read_text() == "/mnt/kept:111:/manifest1.json\n"
+
+    def test_kill_process_at_mount_keeps_entry_when_unmount_fails(
+        self,
+        tmp_path: Path,
+    ):
+        """A failed unmount must not drop the entry, nor report success.
+
+        Returning True here told the caller the process had been killed when it had
+        not, and the entry it removed was the only record of the live mount.
+        """
+        # GIVEN
+        pid_file_path = (tmp_path / DEADLINE_VFS_PID_FILE_NAME).resolve()
+        pid_file_path.write_text("/mnt/kept:111:/manifest1.json\n/mnt/other:222:/manifest2.json\n")
+
+        # WHEN
+        with patch(
+            f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.is_mount",
+            return_value=True,
+        ), patch(
+            f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.shutdown_libfuse_mount",
+            return_value=False,
+        ):
+            result = VFSProcessManager.kill_process_at_mount(
+                session_dir=tmp_path, mount_point="/mnt/kept", os_user="test-user"
+            )
+
+        # THEN
+        assert result is False
+        assert pid_file_path.read_text() == (
+            "/mnt/kept:111:/manifest1.json\n/mnt/other:222:/manifest2.json\n"
+        )
+
+    def test_start_terminates_the_vfs_process_when_the_mount_times_out(
+        self,
+        tmp_path: Path,
+    ):
+        """A mount that never appears must not leave the process running.
+
+        The pid entry is written after the mount check, so on this path no record of
+        the process exists anywhere. VFSFailedToMountError is caught nowhere in src/,
+        so session cleanup later read a pid file with no entry for this mount and left
+        the process alive.
+        """
+        # GIVEN
+        os.environ[DEADLINE_VFS_ENV_VAR] = str((Path(__file__) / "deadline_vfs").resolve())
+        local_root: str = f"{str(tmp_path)}/assetroot-27bggh78dd2b568ab123"
+        process_manager: VFSProcessManager = VFSProcessManager(
+            asset_bucket=self.s3_settings.s3BucketName,
+            region=os.environ["AWS_DEFAULT_REGION"],
+            manifest_path=f"{local_root}/manifest.json",
+            mount_point=local_root,
+            os_user="test-user",
+            os_env_vars={"AWS_PROFILE": "test-profile"},
+        )
+        mock_proc = MagicMock()
+        mock_proc.pid = 4321
+
+        with patch(
+            f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.find_vfs",
+            return_value="/test/directory/path",
+        ), patch(
+            f"{deadline.__package__}.job_attachments.vfs.subprocess.Popen",
+            return_value=mock_proc,
+        ), patch(
+            f"{deadline.__package__}.job_attachments.vfs.os.path.exists",
+            return_value=True,
+        ), patch(
+            f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.get_launch_environ",
+            return_value=os.environ,
+        ), patch(
+            f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.wait_for_mount",
+            return_value=False,
+        ):
+            # WHEN
+            with pytest.raises(VFSFailedToMountError):
+                process_manager.start(tmp_path)
+
+        # THEN
+        mock_proc.terminate.assert_called_once()
+        mock_proc.wait.assert_called_once()
+
+    def test_kill_all_processes_absorbs_a_racing_pid_file_removal(
+        self,
+        tmp_path: Path,
+    ):
+        """A pid file removed under us must not escape into cleanup_session.
+
+        The removal used to sit inside the same try as the read, under
+        `except FileNotFoundError`. cleanup_session catches only
+        VFSExecutableMissingError, so letting this escape would be a new failure mode.
+        """
+        # GIVEN
+        pid_file_path = (tmp_path / DEADLINE_VFS_PID_FILE_NAME).resolve()
+        pid_file_path.write_text("/mnt/gone:222:/manifest2.json\n")
+
+        def shutdown_and_remove_pid_file(mount_path, os_user, session_dir):
+            os.remove(pid_file_path)
+            return True
+
+        # WHEN
+        with patch(
+            f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.shutdown_libfuse_mount",
+            side_effect=shutdown_and_remove_pid_file,
+        ):
+            # THEN: does not raise
+            VFSProcessManager.kill_all_processes(tmp_path, os_user="test-user")
+
+        assert not pid_file_path.exists()
+
+    def test_shutdown_libfuse_mount_reports_failed_unmount(
+        self,
+        tmp_path: Path,
+    ):
+        """A non-zero fusermount3 must be reported as False, not raised.
+
+        The returncode log used to sit outside the try, so a CalledProcessError
+        reached it with run_result unbound and raised UnboundLocalError. That aborted
+        kill_all_processes mid-loop, leaving later mounts unattempted, and escaped
+        cleanup_session, which catches only VFSExecutableMissingError. It also made
+        the keep-the-entry paths above unreachable for the most likely failure.
+        """
+        # GIVEN
+        with patch(
+            f"{deadline.__package__}.job_attachments.vfs.os.path.exists",
+            return_value=True,
+        ), patch(
+            f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.find_vfs_link_dir",
+            return_value="/test/link",
+        ), patch(
+            f"{deadline.__package__}.job_attachments.vfs.subprocess.run",
+            side_effect=subprocess.CalledProcessError(1, "fusermount3"),
+        ), patch(
+            f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.wait_for_mount",
+            return_value=False,
+        ):
+            # WHEN
+            result = VFSProcessManager.shutdown_libfuse_mount("/mnt/kept", "test-user", tmp_path)
+
+        # THEN
+        assert result is False
 
 
 @pytest.mark.parametrize("vfs_cache_enabled", [True, False])
