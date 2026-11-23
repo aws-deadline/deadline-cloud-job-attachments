@@ -123,9 +123,10 @@ class TestFileStatCacheLongPath:
         cache = _FileStatCache()
         mock_stat_result = MagicMock()
 
-        with patch(
-            "deadline.job_attachments.upload._get_long_path_compatible_path"
-        ) as mock_compat, patch.object(Path, "stat", return_value=mock_stat_result):
+        with (
+            patch("deadline.job_attachments.upload._get_long_path_compatible_path") as mock_compat,
+            patch.object(Path, "stat", return_value=mock_stat_result),
+        ):
             mock_compat.return_value = Path(self.LONG_PATH)
 
             result = cache._get_stat(self.LONG_PATH)
@@ -139,9 +140,10 @@ class TestFileStatCacheLongPath:
         cache = _FileStatCache()
         mock_stat_result = MagicMock()
 
-        with patch(
-            "deadline.job_attachments.upload._get_long_path_compatible_path"
-        ) as mock_compat, patch.object(Path, "stat", return_value=mock_stat_result):
+        with (
+            patch("deadline.job_attachments.upload._get_long_path_compatible_path") as mock_compat,
+            patch.object(Path, "stat", return_value=mock_stat_result),
+        ):
             mock_compat.return_value = Path("\\\\?\\" + self.LONG_PATH)
 
             # Call twice - second call should use cache
@@ -155,10 +157,10 @@ class TestFileStatCacheLongPath:
         """Test that exists() fallback wraps path with _get_long_path_compatible_path"""
         cache = _FileStatCache()
 
-        with patch(
-            "deadline.job_attachments.upload._get_long_path_compatible_path"
-        ) as mock_compat, patch.object(Path, "stat", side_effect=FileNotFoundError), patch.object(
-            Path, "exists", return_value=True
+        with (
+            patch("deadline.job_attachments.upload._get_long_path_compatible_path") as mock_compat,
+            patch.object(Path, "stat", side_effect=FileNotFoundError),
+            patch.object(Path, "exists", return_value=True),
         ):
             mock_compat.return_value = Path("\\\\?\\" + self.LONG_PATH)
 
@@ -172,10 +174,10 @@ class TestFileStatCacheLongPath:
         """Test that is_dir() fallback wraps path with _get_long_path_compatible_path"""
         cache = _FileStatCache()
 
-        with patch(
-            "deadline.job_attachments.upload._get_long_path_compatible_path"
-        ) as mock_compat, patch.object(Path, "stat", side_effect=FileNotFoundError), patch.object(
-            Path, "is_dir", return_value=False
+        with (
+            patch("deadline.job_attachments.upload._get_long_path_compatible_path") as mock_compat,
+            patch.object(Path, "stat", side_effect=FileNotFoundError),
+            patch.object(Path, "is_dir", return_value=False),
         ):
             mock_compat.return_value = Path("\\\\?\\" + self.LONG_PATH)
 

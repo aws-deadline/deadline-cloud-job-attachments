@@ -32,7 +32,7 @@ Table of Contents:
 
 To develop the Python code in this repository you will need:
 
-1. Python 3.8 or higher.
+1. Python 3.9 or higher.
 2. The [hatch](https://github.com/pypa/hatch) package installed (`pip install --upgrade hatch`) into your Python environment.
 
 You can develop on a Linux, MacOS, or Windows workstation, but you may find that some of the support scripting is specific to
@@ -109,13 +109,13 @@ If you want assistance developing tests, then please don't hesitate to open a dr
 We'll do our best to help you out and point you in the right direction.
 
 Our tests are implemented using the [PyTest](https://docs.pytest.org/en/stable/) testing framework,
-and unit tests generally make use of Python's [unittest.mock](https://docs.python.org/3.8/library/unittest.mock.html)
+and unit tests generally make use of Python's [unittest.mock](https://docs.python.org/3/library/unittest.mock.html)
 package to avoid runtime dependencies and narrowly focus tests on a specific aspect of the implementation.
 
 If you are not sure how to start writing tests, then we suggest looking at the existing tests
 for the same or similar functions for inspiration (search for calls to the function within the `test/`
 subdirectories). You will also find both the official [PyTest documentation](https://docs.pytest.org/en/stable/)
-and [unitest.mock documentation](https://docs.python.org/3.8/library/unittest.mock.html) very informative (we do).
+and [unitest.mock documentation](https://docs.python.org/3/library/unittest.mock.html) very informative (we do).
 
 ### Unit Tests
 

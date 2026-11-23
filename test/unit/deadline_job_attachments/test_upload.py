@@ -151,23 +151,28 @@ class TestUpload:
             scene_file.size() + texture_file.size() + normal_file.size() + meta_file.size()
         )
 
-        with patch(
-            f"{deadline.__package__}.job_attachments.upload.PathFormat.get_host_path_format",
-            return_value=PathFormat.POSIX,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.upload.hash_data",
-            side_effect=["e", "manifesthash"],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.upload.hash_file",
-            side_effect={
-                str(scene_file): "a",
-                str(texture_file): "b",
-                str(normal_file): "c",
-                str(meta_file): "d",
-            }.get,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.models._generate_random_guid",
-            return_value="0000",
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.upload.PathFormat.get_host_path_format",
+                return_value=PathFormat.POSIX,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.upload.hash_data",
+                side_effect=["e", "manifesthash"],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.upload.hash_file",
+                side_effect={
+                    str(scene_file): "a",
+                    str(texture_file): "b",
+                    str(normal_file): "c",
+                    str(meta_file): "d",
+                }.get,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.models._generate_random_guid",
+                return_value="0000",
+            ),
         ):
             caplog.set_level(DEBUG)
 
@@ -347,15 +352,19 @@ class TestUpload:
         output_d = r"D:\my\awesome\outputdir"
         cache_dir = tmpdir.mkdir("cache")
 
-        with patch(
-            f"{deadline.__package__}.job_attachments.upload.hash_data",
-            side_effect=["b", "manifesthash"],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.upload.hash_file",
-            side_effect={str(input_c): "a"}.get,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.models._generate_random_guid",
-            return_value="0000",
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.upload.hash_data",
+                side_effect=["b", "manifesthash"],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.upload.hash_file",
+                side_effect={str(input_c): "a"}.get,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.models._generate_random_guid",
+                return_value="0000",
+            ),
         ):
             caplog.set_level(DEBUG)
 
@@ -513,18 +522,23 @@ class TestUpload:
             asset_manifest_version=manifest_version,
         )
 
-        with patch(
-            f"{deadline.__package__}.job_attachments.upload.PathFormat.get_host_path_format",
-            return_value=PathFormat.POSIX,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.upload.hash_data",
-            side_effect=["c", "manifesthash"],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.upload.hash_file",
-            side_effect=[str(i) for i in range(num_input_files)],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.models._generate_random_guid",
-            return_value="0000",
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.upload.PathFormat.get_host_path_format",
+                return_value=PathFormat.POSIX,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.upload.hash_data",
+                side_effect=["c", "manifesthash"],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.upload.hash_file",
+                side_effect=[str(i) for i in range(num_input_files)],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.models._generate_random_guid",
+                return_value="0000",
+            ),
         ):
             caplog.set_level(DEBUG)
 
@@ -671,15 +685,19 @@ class TestUpload:
         asset_manager.asset_uploader.num_upload_workers = 1
 
         # Given
-        with patch(
-            f"{deadline.__package__}.job_attachments.upload.PathFormat.get_host_path_format",
-            return_value=PathFormat.POSIX,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.upload.hash_data",
-            side_effect=["c", "manifesthash"],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.upload.hash_file",
-            side_effect=lambda *args, **kwargs: "samehash",
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.upload.PathFormat.get_host_path_format",
+                return_value=PathFormat.POSIX,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.upload.hash_data",
+                side_effect=["c", "manifesthash"],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.upload.hash_file",
+                side_effect=lambda *args, **kwargs: "samehash",
+            ),
         ):
             mock_on_preparing_to_submit = MagicMock(return_value=True)
             mock_on_uploading_assets = MagicMock(return_value=True)
@@ -779,21 +797,27 @@ class TestUpload:
                 return "somethingnew"
 
         # Given
-        with patch(
-            f"{deadline.__package__}.job_attachments.upload.PathFormat.get_host_path_format",
-            return_value=PathFormat.POSIX,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.upload.hash_data",
-            side_effect=["manifest", "manifesthash"],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.upload.PathFormat.get_host_path_format",
-            return_value=PathFormat.POSIX,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.upload.hash_file",
-            side_effect=mock_hash_file,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.models._generate_random_guid",
-            return_value="0000",
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.upload.PathFormat.get_host_path_format",
+                return_value=PathFormat.POSIX,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.upload.hash_data",
+                side_effect=["manifest", "manifesthash"],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.upload.PathFormat.get_host_path_format",
+                return_value=PathFormat.POSIX,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.upload.hash_file",
+                side_effect=mock_hash_file,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.models._generate_random_guid",
+                return_value="0000",
+            ),
         ):
             s3 = boto3.Session(region_name="us-west-2").resource("s3")  # pylint: disable=invalid-name
             bucket = s3.Bucket(self.job_attachment_s3_settings.s3BucketName)
@@ -916,21 +940,27 @@ class TestUpload:
             asset_manifest_version=manifest_version,
         )
 
-        with patch(
-            f"{deadline.__package__}.job_attachments.upload.PathFormat.get_host_path_format",
-            return_value=PathFormat.POSIX,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.upload.hash_data",
-            side_effect=["manifesto", "manifesthash"],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.upload.PathFormat.get_host_path_format",
-            return_value=PathFormat.POSIX,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.upload.hash_file",
-            side_effect=[str(i) for i in range(num_input_files)],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.models._generate_random_guid",
-            return_value="0000",
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.upload.PathFormat.get_host_path_format",
+                return_value=PathFormat.POSIX,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.upload.hash_data",
+                side_effect=["manifesto", "manifesthash"],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.upload.PathFormat.get_host_path_format",
+                return_value=PathFormat.POSIX,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.upload.hash_file",
+                side_effect=[str(i) for i in range(num_input_files)],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.models._generate_random_guid",
+                return_value="0000",
+            ),
         ):
             s3 = boto3.Session(region_name="us-west-2").resource("s3")  # pylint: disable=invalid-name
             bucket = s3.Bucket(self.job_attachment_s3_settings.s3BucketName)
@@ -1046,15 +1076,19 @@ class TestUpload:
         output_dir = str(tmpdir.join("outputs"))
 
         # Given
-        with patch(
-            f"{deadline.__package__}.job_attachments.upload.PathFormat.get_host_path_format",
-            return_value=PathFormat.POSIX,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.upload.hash_data",
-            side_effect=["a", "manifesthash"],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.models._generate_random_guid",
-            return_value="0000",
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.upload.PathFormat.get_host_path_format",
+                return_value=PathFormat.POSIX,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.upload.hash_data",
+                side_effect=["a", "manifesthash"],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.models._generate_random_guid",
+                return_value="0000",
+            ),
         ):
             mock_on_preparing_to_submit = MagicMock(return_value=True)
             mock_on_uploading_assets = MagicMock(return_value=True)
@@ -1360,9 +1394,12 @@ class TestUpload:
 
         uploader._s3 = s3
 
-        with stubber, patch(
-            f"{deadline.__package__}.job_attachments.upload.get_account_id",
-            return_value="123456789012",
+        with (
+            stubber,
+            patch(
+                f"{deadline.__package__}.job_attachments.upload.get_account_id",
+                return_value="123456789012",
+            ),
         ):
             with pytest.raises(JobAttachmentsS3ClientError) as err:
                 uploader.file_already_uploaded(
@@ -1678,15 +1715,19 @@ class TestUpload:
         input_not_exist = "/texture/that/doesnt/exist.anywhere"
         directory_as_file = str(Path(scene_file).parent)
 
-        with patch(
-            f"{deadline.__package__}.job_attachments.upload.PathFormat.get_host_path_format",
-            return_value=PathFormat.POSIX,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.upload.hash_data",
-            side_effect=["c", "manifesthash"],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.upload.hash_file",
-            side_effect=["a"],
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.upload.PathFormat.get_host_path_format",
+                return_value=PathFormat.POSIX,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.upload.hash_data",
+                side_effect=["c", "manifesthash"],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.upload.hash_file",
+                side_effect=["a"],
+            ),
         ):
             asset_manager = S3AssetManager(
                 farm_id=farm_id,
@@ -1717,15 +1758,19 @@ class TestUpload:
 
         expected_total_input_bytes = scene_file.size()
 
-        with patch(
-            f"{deadline.__package__}.job_attachments.upload.PathFormat.get_host_path_format",
-            return_value=PathFormat.POSIX,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.upload.hash_data",
-            side_effect=["c", "manifesthash"],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.upload.hash_file",
-            side_effect=["a"],
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.upload.PathFormat.get_host_path_format",
+                return_value=PathFormat.POSIX,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.upload.hash_data",
+                side_effect=["c", "manifesthash"],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.upload.hash_file",
+                side_effect=["a"],
+            ),
         ):
             caplog.set_level(INFO)
 
@@ -1801,15 +1846,19 @@ class TestUpload:
         scene_file.write("a")
         input_not_exist = "/texture/that/does/notexist.anywhere"
 
-        with patch(
-            f"{deadline.__package__}.job_attachments.upload.PathFormat.get_host_path_format",
-            return_value=PathFormat.POSIX,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.upload.hash_data",
-            side_effect=["c", "manifesthash"],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.upload.hash_file",
-            side_effect=["a"],
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.upload.PathFormat.get_host_path_format",
+                return_value=PathFormat.POSIX,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.upload.hash_data",
+                side_effect=["c", "manifesthash"],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.upload.hash_file",
+                side_effect=["a"],
+            ),
         ):
             asset_manager = S3AssetManager(
                 farm_id=farm_id,
@@ -1882,18 +1931,23 @@ class TestUpload:
         cache_dir = tmpdir.mkdir("cache")
 
         # WHEN
-        with patch(
-            f"{deadline.__package__}.job_attachments.upload.PathFormat.get_host_path_format",
-            return_value=PathFormat.POSIX,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.upload.hash_data",
-            side_effect=["manifest", "manifesthash"],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.upload.hash_file",
-            side_effect=["a"],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.models._generate_random_guid",
-            return_value="0000",
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.upload.PathFormat.get_host_path_format",
+                return_value=PathFormat.POSIX,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.upload.hash_data",
+                side_effect=["manifest", "manifesthash"],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.upload.hash_file",
+                side_effect=["a"],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.models._generate_random_guid",
+                return_value="0000",
+            ),
         ):
             mock_on_preparing_to_submit = MagicMock(return_value=True)
             mock_on_uploading_assets = MagicMock(return_value=True)
@@ -2750,18 +2804,22 @@ class TestUpload:
         s3_cache.get_connection_entry.return_value = test_entry
 
         # When
-        with patch.object(
-            asset_manager.asset_uploader,
-            "_get_current_timestamp",
-            side_effect=["345.67"],
-        ), patch.object(
-            asset_manager.asset_uploader,
-            "file_already_uploaded",
-            return_value=file_exists_in_s3,
-        ) as mock_file_already_uploaded, patch.object(
-            asset_manager.asset_uploader,
-            "upload_file_to_s3",
-        ) as mock_upload_file_to_s3:
+        with (
+            patch.object(
+                asset_manager.asset_uploader,
+                "_get_current_timestamp",
+                side_effect=["345.67"],
+            ),
+            patch.object(
+                asset_manager.asset_uploader,
+                "file_already_uploaded",
+                return_value=file_exists_in_s3,
+            ) as mock_file_already_uploaded,
+            patch.object(
+                asset_manager.asset_uploader,
+                "upload_file_to_s3",
+            ) as mock_upload_file_to_s3,
+        ):
             is_uploaded, file_size = asset_manager.asset_uploader.upload_object_to_cas(
                 file=BaseManifestPath(path="test-file.txt", hash="test-hash", size=5, mtime=1),
                 hash_algorithm=HashAlgorithm.XXH128,
@@ -3175,8 +3233,9 @@ class TestUploadLongPath:
         abs_path = Path(os.path.normpath(Path(long_path).absolute()))
 
         # Patch the stat cache to report the file exists and is not a directory
-        with patch.object(asset_manager._stat_cache, "exists", return_value=True), patch.object(
-            asset_manager._stat_cache, "is_dir", return_value=False
+        with (
+            patch.object(asset_manager._stat_cache, "exists", return_value=True),
+            patch.object(asset_manager._stat_cache, "is_dir", return_value=False),
         ):
             referenced_paths: Set[str] = set()
             result = asset_manager._get_asset_groups(
@@ -3210,11 +3269,12 @@ class TestUploadLongPath:
             mock_stat.st_mtime_ns = 1234567890000000000
             mock_stat.st_size = 1024
 
-            with patch.object(Path, "stat", return_value=mock_stat), patch.object(
-                Path, "resolve", return_value=long_path
-            ), patch("deadline.job_attachments.upload.hash_file", return_value="abc123"), patch(
-                "deadline.job_attachments.upload.HashCache"
-            ) as MockHashCache:
+            with (
+                patch.object(Path, "stat", return_value=mock_stat),
+                patch.object(Path, "resolve", return_value=long_path),
+                patch("deadline.job_attachments.upload.hash_file", return_value="abc123"),
+                patch("deadline.job_attachments.upload.HashCache") as MockHashCache,
+            ):
                 mock_hash_cache = MockHashCache.return_value
                 mock_hash_cache.get_connection_entry.return_value = None
                 mock_hash_cache.get_local_connection.return_value = MagicMock()
@@ -3242,13 +3302,14 @@ class TestUploadLongPath:
             mock_stat.st_mtime_ns = 1234567890000000000
             mock_stat.st_size = 1024
 
-            with patch.object(Path, "stat", return_value=mock_stat), patch.object(
-                Path, "resolve", return_value=long_path
-            ), patch(
-                "deadline.job_attachments.upload.hash_file", return_value="abc123"
-            ) as mock_hash_file, patch(
-                "deadline.job_attachments.upload.HashCache"
-            ) as MockHashCache:
+            with (
+                patch.object(Path, "stat", return_value=mock_stat),
+                patch.object(Path, "resolve", return_value=long_path),
+                patch(
+                    "deadline.job_attachments.upload.hash_file", return_value="abc123"
+                ) as mock_hash_file,
+                patch("deadline.job_attachments.upload.HashCache") as MockHashCache,
+            ):
                 mock_hash_cache = MockHashCache.return_value
                 mock_hash_cache.get_connection_entry.return_value = None
                 mock_hash_cache.get_local_connection.return_value = MagicMock()

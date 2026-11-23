@@ -7,7 +7,7 @@ This document provides guidance for AI agents working with this codebase.
 AWS Deadline Cloud job attachments is a Python library for transferring files between workstations and [AWS Deadline Cloud](https://docs.aws.amazon.com/deadline-cloud/latest/userguide/what-is-deadline-cloud.html) using Amazon S3 buckets as content-addressed storage.
 
 **Package name:** `deadline-job-attachments`
-**Python versions:** 3.8 - 3.14
+**Python versions:** 3.9 - 3.14
 **Platforms:** Linux, Windows, macOS
 
 ## Repository Structure

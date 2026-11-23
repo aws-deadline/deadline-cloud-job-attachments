@@ -541,10 +541,13 @@ def assert_get_job_output_paths_by_asset_root_when_no_asset_root_throws_error(
     """
     Assert that get_job_output_paths_by_asset_root raises MissingAssetRootError when fail to get manifest.
     """
-    with patch(
-        f"{deadline.__package__}.job_attachments.download._get_asset_root_from_metadata",
-        return_value=None,
-    ), pytest.raises(MissingAssetRootError) as raised_err:
+    with (
+        patch(
+            f"{deadline.__package__}.job_attachments.download._get_asset_root_from_metadata",
+            return_value=None,
+        ),
+        pytest.raises(MissingAssetRootError) as raised_err,
+    ):
         get_job_output_paths_by_asset_root(s3_settings, farm_id, queue_id, "job-1")
     assert "Failed to get asset root from metadata of output manifest:" in str(raised_err.value)
 
@@ -1591,9 +1594,12 @@ class TestFullDownload:
                 step_id=None,
                 task_id=None,
             )
-        with patch(
-            f"{deadline.__package__}.job_attachments.download.download_files", return_value=[]
-        ), pytest.raises((PathOutsideDirectoryError, ValueError)):
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.download.download_files", return_value=[]
+            ),
+            pytest.raises((PathOutsideDirectoryError, ValueError)),
+        ):
             output_downloader.download()
 
     @pytest.mark.skipif(
@@ -1673,8 +1679,12 @@ class TestFullDownload:
             http_status_code=403,
         )
 
-        with stubber, patch(
-            f"{deadline.__package__}.job_attachments.download.get_s3_client", return_value=s3_client
+        with (
+            stubber,
+            patch(
+                f"{deadline.__package__}.job_attachments.download.get_s3_client",
+                return_value=s3_client,
+            ),
         ):
             with pytest.raises(JobAttachmentsS3ClientError) as exc:
                 get_manifest_from_s3("test-key", "test-bucket")
@@ -1725,8 +1735,12 @@ class TestFullDownload:
             http_status_code=403,
         )
 
-        with stubber, patch(
-            f"{deadline.__package__}.job_attachments.download.get_s3_client", return_value=s3_client
+        with (
+            stubber,
+            patch(
+                f"{deadline.__package__}.job_attachments.download.get_s3_client",
+                return_value=s3_client,
+            ),
         ):
             with pytest.raises(JobAttachmentsS3ClientError) as exc:
                 _get_tasks_manifests_keys_from_s3(
@@ -1790,9 +1804,14 @@ class TestFullDownload:
             path="inputs/input1.txt", hash="input1", size=1, mtime=1234000000
         )
 
-        with stubber, patch(
-            f"{deadline.__package__}.job_attachments.download.get_s3_client", return_value=s3_client
-        ), patch(f"{deadline.__package__}.job_attachments.download.Path.mkdir"):
+        with (
+            stubber,
+            patch(
+                f"{deadline.__package__}.job_attachments.download.get_s3_client",
+                return_value=s3_client,
+            ),
+            patch(f"{deadline.__package__}.job_attachments.download.Path.mkdir"),
+        ):
             with pytest.raises(JobAttachmentsS3ClientError) as exc:
                 download_file(
                     file_path,
@@ -1835,13 +1854,17 @@ class TestFullDownload:
             path="inputs/input1.txt", hash="input1", size=1, mtime=1234000000
         )
 
-        with patch(
-            f"{deadline.__package__}.job_attachments.download.get_s3_client",
-            return_value=mock_s3_client,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.download.get_s3_transfer_manager",
-            return_value=mock_transfer_manager,
-        ), patch(f"{deadline.__package__}.job_attachments.download.Path.mkdir"):
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.download.get_s3_client",
+                return_value=mock_s3_client,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.download.get_s3_transfer_manager",
+                return_value=mock_transfer_manager,
+            ),
+            patch(f"{deadline.__package__}.job_attachments.download.Path.mkdir"),
+        ):
             with pytest.raises(AssetSyncError) as exc:
                 download_file(
                     file_path,
@@ -1904,13 +1927,17 @@ class TestFullDownload:
         mock_s3_client,
         mock_transfer_manager,
     ):
-        with patch(
-            f"{deadline.__package__}.job_attachments.download.get_s3_client",
-            return_value=mock_s3_client,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.download.get_s3_transfer_manager",
-            return_value=mock_transfer_manager,
-        ), patch(f"{deadline.__package__}.job_attachments.download.Path.mkdir"):
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.download.get_s3_client",
+                return_value=mock_s3_client,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.download.get_s3_transfer_manager",
+                return_value=mock_transfer_manager,
+            ),
+            patch(f"{deadline.__package__}.job_attachments.download.Path.mkdir"),
+        ):
             with pytest.raises(AssetSyncError) as exc:
                 download_file(
                     file_path,
@@ -1987,13 +2014,17 @@ class TestFullDownload:
             "about the prefix being applied."
         )
 
-        with patch(
-            f"{deadline.__package__}.job_attachments.download.get_s3_client",
-            return_value=mock_s3_client,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.download.get_s3_transfer_manager",
-            return_value=mock_transfer_manager,
-        ), patch(f"{deadline.__package__}.job_attachments.download.Path.mkdir"):
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.download.get_s3_client",
+                return_value=mock_s3_client,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.download.get_s3_transfer_manager",
+                return_value=mock_transfer_manager,
+            ),
+            patch(f"{deadline.__package__}.job_attachments.download.Path.mkdir"),
+        ):
             with pytest.raises(AssetSyncError) as exc:
                 download_file(
                     file_path,
@@ -2083,22 +2114,30 @@ class TestFullDownload:
         mock_lock = MagicMock()
         mock_collision_dict: DefaultDict[str, int] = DefaultDict(int)
 
-        with patch(
-            f"{deadline.__package__}.job_attachments.download.get_s3_client",
-            return_value=mock_s3_client,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.download.get_s3_transfer_manager",
-            return_value=mock_transfer_manager,
-        ), patch(
-            f"{deadline.__package__}.job_attachments._utils._is_windows_long_path_registry_enabled",
-            return_value=False,  # Ensure UNC prefix is used for Windows
-        ), patch(
-            "pathlib.Path.is_file",
-            return_value=True,  # Simulate that original file exists to force conflict
-        ), patch(
-            f"{deadline.__package__}.job_attachments.download._get_new_copy_file_path",
-            return_value=copy_file,
-        ), patch("pathlib.Path.mkdir"), patch("os.utime"):
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.download.get_s3_client",
+                return_value=mock_s3_client,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.download.get_s3_transfer_manager",
+                return_value=mock_transfer_manager,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments._utils._is_windows_long_path_registry_enabled",
+                return_value=False,  # Ensure UNC prefix is used for Windows
+            ),
+            patch(
+                "pathlib.Path.is_file",
+                return_value=True,  # Simulate that original file exists to force conflict
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.download._get_new_copy_file_path",
+                return_value=copy_file,
+            ),
+            patch("pathlib.Path.mkdir"),
+            patch("os.utime"),
+        ):
             # Call download_file with CREATE_COPY resolution
             download_file(
                 file_path,
@@ -2483,9 +2522,13 @@ def test_download_files_from_manifests(
         downloaded_files.append(args[0].path)
         return (40, Path(args[0].path))
 
-    with patch(
-        f"{deadline.__package__}.job_attachments.download.download_file", side_effect=download_file
-    ), patch(f"{deadline.__package__}.job_attachments.download.get_s3_client"):
+    with (
+        patch(
+            f"{deadline.__package__}.job_attachments.download.download_file",
+            side_effect=download_file,
+        ),
+        patch(f"{deadline.__package__}.job_attachments.download.get_s3_client"),
+    ):
         download_files_from_manifests(
             s3_bucket="s3_settings.s3BucketName",
             manifests_by_root={"/test": merged_manifest},
@@ -2524,18 +2567,23 @@ def test_handle_existing_vfs_success(
     manifest_two = decode_manifest(json.dumps(test_manifest_two))
     merged_decoded = decode_manifest(json.dumps(merged_manifest))
     session_path = Path("/some/session/dir")
-    with patch(
-        f"{deadline.__package__}.job_attachments.download.VFSProcessManager.is_mount",
-        return_value=True,
-    ) as mock_is_mount, patch(
-        f"{deadline.__package__}.job_attachments.download.VFSProcessManager.get_manifest_path_for_mount",
-        return_value="/some/manifest/path",
-    ) as mock_get_manifest_path, patch(
-        f"{deadline.__package__}.job_attachments.download._read_manifest_file",
-        return_value=manifest_one,
-    ) as mock_decode_manifest, patch(
-        f"{deadline.__package__}.job_attachments.download.VFSProcessManager.kill_process_at_mount",
-    ) as mock_kill_process:
+    with (
+        patch(
+            f"{deadline.__package__}.job_attachments.download.VFSProcessManager.is_mount",
+            return_value=True,
+        ) as mock_is_mount,
+        patch(
+            f"{deadline.__package__}.job_attachments.download.VFSProcessManager.get_manifest_path_for_mount",
+            return_value="/some/manifest/path",
+        ) as mock_get_manifest_path,
+        patch(
+            f"{deadline.__package__}.job_attachments.download._read_manifest_file",
+            return_value=manifest_one,
+        ) as mock_decode_manifest,
+        patch(
+            f"{deadline.__package__}.job_attachments.download.VFSProcessManager.kill_process_at_mount",
+        ) as mock_kill_process,
+    ):
         result_manifest = handle_existing_vfs(
             manifest_two, session_path, "/some/mount", "test-user"
         )
@@ -2579,16 +2627,21 @@ def test_mount_vfs_from_manifests(
     manifest_path = temp_dir_path / VFS_MANIFEST_FOLDER_IN_SESSION
     logs_path = temp_dir_path / VFS_LOGS_FOLDER_IN_SESSION
 
-    with patch(
-        f"{deadline.__package__}.job_attachments.download._set_fs_group",
-    ) as mock_set_vs_group, patch(
-        f"{deadline.__package__}.job_attachments.download.handle_existing_vfs",
-        return_value=merged_decoded,
-    ) as mock_handle_existing, patch(
-        f"{deadline.__package__}.job_attachments.download._write_manifest_to_temp_file",
-    ) as mock_write_manifest, patch(
-        f"{deadline.__package__}.job_attachments.download.VFSProcessManager.start",
-    ) as mock_vfs_start:
+    with (
+        patch(
+            f"{deadline.__package__}.job_attachments.download._set_fs_group",
+        ) as mock_set_vs_group,
+        patch(
+            f"{deadline.__package__}.job_attachments.download.handle_existing_vfs",
+            return_value=merged_decoded,
+        ) as mock_handle_existing,
+        patch(
+            f"{deadline.__package__}.job_attachments.download._write_manifest_to_temp_file",
+        ) as mock_write_manifest,
+        patch(
+            f"{deadline.__package__}.job_attachments.download.VFSProcessManager.start",
+        ) as mock_vfs_start,
+    ):
         mount_vfs_from_manifests(
             "test-bucket",
             manifests_by_root,
@@ -2868,11 +2921,12 @@ def test_get_output_manifests_by_asset_root_chronological_merge_chunked():
     newer_manifest = decode_manifest(json.dumps(newer_manifest_dict))
 
     # Mock the S3 calls
-    with patch(
-        "deadline.job_attachments.download._get_tasks_manifests_keys_from_s3"
-    ) as mock_keys, patch(
-        "deadline.job_attachments.download._get_asset_root_and_manifest_from_s3_with_last_modified"
-    ) as mock_get_manifest:
+    with (
+        patch("deadline.job_attachments.download._get_tasks_manifests_keys_from_s3") as mock_keys,
+        patch(
+            "deadline.job_attachments.download._get_asset_root_and_manifest_from_s3_with_last_modified"
+        ) as mock_get_manifest,
+    ):
         # Two chunked session actions under same step with different timestamps
         mock_keys.return_value = [
             "step-0/2024-05-06T02:58:03.824934Z_sessionaction-0-0/0_output",  # Older
@@ -2941,11 +2995,12 @@ def test_get_output_manifests_by_asset_root_multiple_asset_roots():
         )
     )
 
-    with patch(
-        "deadline.job_attachments.download._get_tasks_manifests_keys_from_s3"
-    ) as mock_keys, patch(
-        "deadline.job_attachments.download._get_asset_root_and_manifest_from_s3_with_last_modified"
-    ) as mock_get_manifest:
+    with (
+        patch("deadline.job_attachments.download._get_tasks_manifests_keys_from_s3") as mock_keys,
+        patch(
+            "deadline.job_attachments.download._get_asset_root_and_manifest_from_s3_with_last_modified"
+        ) as mock_get_manifest,
+    ):
         mock_keys.return_value = ["manifest1", "manifest2"]
         mock_get_manifest.side_effect = [
             ("/root1", datetime(2024, 5, 6), manifest_root1),
@@ -3133,13 +3188,17 @@ def test_download_file_rejects_paths_outside_download_dir(tmp_path, malicious_pa
 
     download_dir = str(tmp_path / "session-dir")
 
-    with patch(
-        f"{deadline.__package__}.job_attachments.download.get_s3_client",
-        return_value=mock_s3_client,
-    ), patch(
-        f"{deadline.__package__}.job_attachments.download.get_s3_transfer_manager",
-        return_value=mock_transfer_manager,
-    ), patch("pathlib.Path.mkdir") as mock_mkdir:
+    with (
+        patch(
+            f"{deadline.__package__}.job_attachments.download.get_s3_client",
+            return_value=mock_s3_client,
+        ),
+        patch(
+            f"{deadline.__package__}.job_attachments.download.get_s3_transfer_manager",
+            return_value=mock_transfer_manager,
+        ),
+        patch("pathlib.Path.mkdir") as mock_mkdir,
+    ):
         with pytest.raises(PathOutsideDirectoryError):
             download_file(
                 file_path,
@@ -3183,13 +3242,18 @@ def test_download_file_allows_path_within_download_dir(tmp_path):
 
     download_dir = str(tmp_path / "session-dir")
 
-    with patch(
-        f"{deadline.__package__}.job_attachments.download.get_s3_client",
-        return_value=mock_s3_client,
-    ), patch(
-        f"{deadline.__package__}.job_attachments.download.get_s3_transfer_manager",
-        return_value=mock_transfer_manager,
-    ), patch("pathlib.Path.mkdir"), patch("os.utime"):
+    with (
+        patch(
+            f"{deadline.__package__}.job_attachments.download.get_s3_client",
+            return_value=mock_s3_client,
+        ),
+        patch(
+            f"{deadline.__package__}.job_attachments.download.get_s3_transfer_manager",
+            return_value=mock_transfer_manager,
+        ),
+        patch("pathlib.Path.mkdir"),
+        patch("os.utime"),
+    ):
         download_file(
             file_path,
             HashAlgorithm.XXH128,
@@ -3251,12 +3315,15 @@ def test_download_summary_paths_do_not_carry_the_unc_prefix(tmp_path: Path):
     # pytest's tmp_path teardown cannot remove a >MAX_PATH tree, so drop it here through
     # the prefix rather than leaving an error at teardown.
     try:
-        with patch(
-            f"{deadline.__package__}.job_attachments.download.get_s3_client",
-            return_value=MagicMock(),
-        ), patch(
-            f"{deadline.__package__}.job_attachments.download.get_s3_transfer_manager",
-            return_value=mock_transfer_manager,
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.download.get_s3_client",
+                return_value=MagicMock(),
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.download.get_s3_transfer_manager",
+                return_value=mock_transfer_manager,
+            ),
         ):
             downloaded = download._download_files_parallel(
                 files=[file_path],

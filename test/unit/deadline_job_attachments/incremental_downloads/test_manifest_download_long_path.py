@@ -62,22 +62,30 @@ class TestIncrementalDownloadLongPath:
         mock_lock = Lock()
         mock_collision_dict: DefaultDict[str, int] = defaultdict(int)
 
-        with patch(
-            f"{deadline.__package__}.job_attachments._incremental_downloads._manifest_s3_downloads._download_file_with_get_object"
-        ) as mock_download_get_object, patch(
-            f"{deadline.__package__}.job_attachments._utils._is_windows_long_path_registry_enabled",
-            return_value=False,  # Ensure UNC prefix is used for Windows
-        ), patch(
-            "pathlib.Path.is_file",
-            return_value=True,  # Simulate that original file exists to force conflict
-        ), patch(
-            f"{deadline.__package__}.job_attachments._incremental_downloads._manifest_s3_downloads._get_new_copy_file_path",
-            return_value=copy_file,
-        ), patch("pathlib.Path.mkdir"), patch(
-            f"{deadline.__package__}.job_attachments._incremental_downloads._manifest_s3_downloads.os.utime"
-        ), patch(
-            f"{deadline.__package__}.job_attachments._incremental_downloads._manifest_s3_downloads.os.path.getsize",
-            return_value=100,  # Return the same size as file.size to pass validation
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments._incremental_downloads._manifest_s3_downloads._download_file_with_get_object"
+            ) as mock_download_get_object,
+            patch(
+                f"{deadline.__package__}.job_attachments._utils._is_windows_long_path_registry_enabled",
+                return_value=False,  # Ensure UNC prefix is used for Windows
+            ),
+            patch(
+                "pathlib.Path.is_file",
+                return_value=True,  # Simulate that original file exists to force conflict
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments._incremental_downloads._manifest_s3_downloads._get_new_copy_file_path",
+                return_value=copy_file,
+            ),
+            patch("pathlib.Path.mkdir"),
+            patch(
+                f"{deadline.__package__}.job_attachments._incremental_downloads._manifest_s3_downloads.os.utime"
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments._incremental_downloads._manifest_s3_downloads.os.path.getsize",
+                return_value=100,  # Return the same size as file.size to pass validation
+            ),
         ):
             # Call _download_file with CREATE_COPY resolution
             _download_file(

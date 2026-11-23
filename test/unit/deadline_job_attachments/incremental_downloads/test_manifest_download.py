@@ -8,11 +8,9 @@ import os
 import time
 from pathlib import Path, PurePosixPath
 from datetime import datetime
-import sys
 
 import boto3
 from moto import mock_aws
-import pytest
 
 from deadline.job_attachments.asset_manifests.hash_algorithms import HashAlgorithm, hash_data
 from deadline.job_attachments.asset_manifests import BaseAssetManifest, BaseManifestPath
@@ -183,9 +181,6 @@ def generate_fake_job_with_output_manifest(
     session["sessionActions"] = [session_action]
 
 
-@pytest.mark.skipif(
-    sys.version_info < (3, 9), reason="test uses random.randbytes which is Python >= 3.9"
-)
 @mock_aws
 def test_manifest_and_output_downloads(tmp_path):
     """
