@@ -336,13 +336,16 @@ class TestVFSProcessmanager:
         bin_check = os.path.join(os.getcwd(), f"bin/{DEADLINE_VFS_EXECUTABLE}")
 
         # verify which is only called when class path is not set
-        with patch(
-            f"{deadline.__package__}.job_attachments.vfs.shutil.which",
-            return_value=None,
-        ) as mock_which, patch(
-            f"{deadline.__package__}.job_attachments.vfs.os.path.exists",
-            side_effect=lambda x: True if x == bin_check else False,
-        ) as mock_path_exists:
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.vfs.shutil.which",
+                return_value=None,
+            ) as mock_which,
+            patch(
+                f"{deadline.__package__}.job_attachments.vfs.os.path.exists",
+                side_effect=lambda x: True if x == bin_check else False,
+            ) as mock_path_exists,
+        ):
             test_path: Union[os.PathLike, str] = process_manager.find_vfs()
             assert str(test_path) == bin_check
 
@@ -530,22 +533,29 @@ class TestVFSProcessmanager:
             os_env_vars={"AWS_PROFILE": "test-profile"},
         )
 
-        with patch(
-            f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.find_vfs",
-            return_value="/test/directory/path",
-        ), patch(
-            f"{deadline.__package__}.job_attachments.vfs.subprocess.Popen",
-        ) as mock_popen, patch(
-            f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.wait_for_mount",
-            return_value=True,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.vfs.os.path.exists",
-            return_value=True,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.vfs.subprocess.run"
-        ) as mock_subprocess_run, patch(
-            f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.get_launch_environ",
-            return_value=os.environ,
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.find_vfs",
+                return_value="/test/directory/path",
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.vfs.subprocess.Popen",
+            ) as mock_popen,
+            patch(
+                f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.wait_for_mount",
+                return_value=True,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.vfs.os.path.exists",
+                return_value=True,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.vfs.subprocess.run"
+            ) as mock_subprocess_run,
+            patch(
+                f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.get_launch_environ",
+                return_value=os.environ,
+            ),
         ):
             # start first mock VFS process
             mock_subprocess = MagicMock()
@@ -606,20 +616,27 @@ class TestVFSProcessmanager:
             os_env_vars={"AWS_PROFILE": "test-profile"},
         )
 
-        with patch(
-            f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.find_vfs",
-            return_value="/test/directory/path",
-        ), patch(
-            f"{deadline.__package__}.job_attachments.vfs.subprocess.Popen",
-        ) as mock_popen, patch(
-            f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.wait_for_mount",
-            return_value=True,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.vfs.os.path.exists",
-            return_value=True,
-        ), patch(f"{deadline.__package__}.job_attachments.vfs.log") as mock_logger, patch(
-            f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.get_launch_environ",
-            return_value=os.environ,
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.find_vfs",
+                return_value="/test/directory/path",
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.vfs.subprocess.Popen",
+            ) as mock_popen,
+            patch(
+                f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.wait_for_mount",
+                return_value=True,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.vfs.os.path.exists",
+                return_value=True,
+            ),
+            patch(f"{deadline.__package__}.job_attachments.vfs.log") as mock_logger,
+            patch(
+                f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.get_launch_environ",
+                return_value=os.environ,
+            ),
         ):
             call_count = 0
             exception_count = 0
@@ -699,25 +716,33 @@ class TestVFSProcessmanager:
             os_env_vars={"AWS_PROFILE": "test-profile"},
         )
 
-        with patch(
-            f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.find_vfs",
-            return_value="/test/directory/path",
-        ), patch(
-            f"{deadline.__package__}.job_attachments.vfs.subprocess.Popen",
-        ) as mock_popen, patch(
-            f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.wait_for_mount",
-            return_value=True,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.vfs.os.path.exists",
-            return_value=True,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.vfs.subprocess.run"
-        ) as mock_subprocess_run, patch(
-            f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.get_launch_environ",
-            return_value=os.environ,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.is_mount",
-            return_value=True,
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.find_vfs",
+                return_value="/test/directory/path",
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.vfs.subprocess.Popen",
+            ) as mock_popen,
+            patch(
+                f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.wait_for_mount",
+                return_value=True,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.vfs.os.path.exists",
+                return_value=True,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.vfs.subprocess.run"
+            ) as mock_subprocess_run,
+            patch(
+                f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.get_launch_environ",
+                return_value=os.environ,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.is_mount",
+                return_value=True,
+            ),
         ):
             # start first mock VFS process
             mock_subprocess = MagicMock()
@@ -798,27 +823,37 @@ class TestVFSProcessmanager:
             os_env_vars={"AWS_PROFILE": "test-profile"},
         )
 
-        with patch(
-            f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.find_vfs",
-            return_value="/test/directory/path",
-        ), patch(
-            f"{deadline.__package__}.job_attachments.vfs.subprocess.Popen",
-        ), patch(
-            f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.wait_for_mount",
-            return_value=True,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.vfs.os.path.exists",
-            return_value=True,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.vfs.shutil.chown",
-        ) as mock_chown, patch(
-            f"{deadline.__package__}.job_attachments.vfs.os.chmod",
-        ) as mock_chmod, patch(f"{deadline.__package__}.job_attachments.vfs.subprocess.run"), patch(
-            f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.get_launch_environ",
-            return_value=os.environ,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.is_mount",
-            return_value=True,
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.find_vfs",
+                return_value="/test/directory/path",
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.vfs.subprocess.Popen",
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.wait_for_mount",
+                return_value=True,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.vfs.os.path.exists",
+                return_value=True,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.vfs.shutil.chown",
+            ) as mock_chown,
+            patch(
+                f"{deadline.__package__}.job_attachments.vfs.os.chmod",
+            ) as mock_chmod,
+            patch(f"{deadline.__package__}.job_attachments.vfs.subprocess.run"),
+            patch(
+                f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.get_launch_environ",
+                return_value=os.environ,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.is_mount",
+                return_value=True,
+            ),
         ):
             process_manager1.start(tmp_path)
 
@@ -879,9 +914,10 @@ def test_launch_environment_has_expected_settings(
 
 
 def test_wait_for_mount_timeout_returns_false(tmp_path: Path):
-    with patch.object(VFSProcessManager, "is_mount", return_value=False), patch.object(
-        VFSProcessManager, "print_log_end"
-    ) as mock_print_log_end:
+    with (
+        patch.object(VFSProcessManager, "is_mount", return_value=False),
+        patch.object(VFSProcessManager, "print_log_end") as mock_print_log_end,
+    ):
         assert not VFSProcessManager.wait_for_mount(
             mount_path="/test/mount",
             session_dir=tmp_path,
@@ -920,20 +956,26 @@ def test_vfs_launched_in_session_folder(
         os_env_vars={"AWS_PROFILE": "test-profile"},
     )
 
-    with patch(
-        f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.find_vfs",
-        return_value="/test/directory/path",
-    ), patch(
-        f"{deadline.__package__}.job_attachments.vfs.subprocess.Popen",
-    ) as mock_popen, patch(
-        f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.wait_for_mount",
-        return_value=True,
-    ), patch(
-        f"{deadline.__package__}.job_attachments.vfs.os.path.exists",
-        return_value=True,
-    ), patch(
-        f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.get_launch_environ",
-        return_value=os.environ,
+    with (
+        patch(
+            f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.find_vfs",
+            return_value="/test/directory/path",
+        ),
+        patch(
+            f"{deadline.__package__}.job_attachments.vfs.subprocess.Popen",
+        ) as mock_popen,
+        patch(
+            f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.wait_for_mount",
+            return_value=True,
+        ),
+        patch(
+            f"{deadline.__package__}.job_attachments.vfs.os.path.exists",
+            return_value=True,
+        ),
+        patch(
+            f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.get_launch_environ",
+            return_value=os.environ,
+        ),
     ):
         process_manager.start(tmp_path)
 
@@ -974,20 +1016,26 @@ def test_vfs_has_expected_logs_folder(
 
     assert VFSProcessManager.logs_folder_path(tmp_path) == expected_logs_folder
 
-    with patch(
-        f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.find_vfs",
-        return_value="/test/directory/path",
-    ), patch(
-        f"{deadline.__package__}.job_attachments.vfs.subprocess.Popen",
-    ), patch(
-        f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.wait_for_mount",
-        return_value=True,
-    ), patch(
-        f"{deadline.__package__}.job_attachments.vfs.os.path.exists",
-        return_value=True,
-    ), patch(
-        f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.get_launch_environ",
-        return_value=os.environ,
+    with (
+        patch(
+            f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.find_vfs",
+            return_value="/test/directory/path",
+        ),
+        patch(
+            f"{deadline.__package__}.job_attachments.vfs.subprocess.Popen",
+        ),
+        patch(
+            f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.wait_for_mount",
+            return_value=True,
+        ),
+        patch(
+            f"{deadline.__package__}.job_attachments.vfs.os.path.exists",
+            return_value=True,
+        ),
+        patch(
+            f"{deadline.__package__}.job_attachments.vfs.VFSProcessManager.get_launch_environ",
+            return_value=os.environ,
+        ),
     ):
         process_manager.start(tmp_path)
 

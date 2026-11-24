@@ -19,7 +19,7 @@ See [job attachments][job-attachments] for a more in-depth look at how files are
 
 This library requires:
 
-1. Python 3.8 through 3.14; and
+1. Python 3.9 through 3.14; and
 2. Linux, Windows, or macOS operating system.
 
 ## Versioning

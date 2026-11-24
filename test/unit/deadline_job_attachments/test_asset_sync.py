@@ -89,12 +89,15 @@ class TestAssetSync:
         local_root = str(Path(session_dir) / dest_dir)
 
         # WHEN
-        with patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.download_files_from_manifests",
-            side_effect=[DownloadSummaryStatistics()],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
-            side_effect=[dest_dir],
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.download_files_from_manifests",
+                side_effect=[DownloadSummaryStatistics()],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
+                side_effect=[dest_dir],
+            ),
         ):
             mock_on_downloading_files = MagicMock(return_value=True)
 
@@ -176,20 +179,23 @@ class TestAssetSync:
         assert job.attachments
 
         # WHEN
-        with patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.get_manifest_from_s3",
-            return_value=test_manifest,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.download_files_from_manifests",
-            side_effect=[DownloadSummaryStatistics()],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
-            side_effect=[dest_dir],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.mount_vfs_from_manifests"
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.VFSProcessManager.find_vfs"
-        ), patch.object(Path, "stat", MagicMock(st_mtime_ns=1234512345123451)):
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.get_manifest_from_s3",
+                return_value=test_manifest,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.download_files_from_manifests",
+                side_effect=[DownloadSummaryStatistics()],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
+                side_effect=[dest_dir],
+            ),
+            patch(f"{deadline.__package__}.job_attachments.asset_sync.mount_vfs_from_manifests"),
+            patch(f"{deadline.__package__}.job_attachments.asset_sync.VFSProcessManager.find_vfs"),
+            patch.object(Path, "stat", MagicMock(st_mtime_ns=1234512345123451)),
+        ):
             mock_on_downloading_files = MagicMock(return_value=True)
 
             (_, result_pathmap_rules) = self.default_asset_sync.sync_inputs(
@@ -255,15 +261,19 @@ class TestAssetSync:
         assert job.attachments
 
         # WHEN
-        with patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.get_manifest_from_s3",
-            return_value=test_manifest,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
-            side_effect=[dest_dir],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.download_files_from_manifests",
-            side_effect=download_exception,
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.get_manifest_from_s3",
+                return_value=test_manifest,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
+                side_effect=[dest_dir],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.download_files_from_manifests",
+                side_effect=download_exception,
+            ),
         ):
             with pytest.raises(JobAttachmentsS3ClientError) as excinfo:
                 self.default_asset_sync.sync_inputs(
@@ -308,19 +318,25 @@ class TestAssetSync:
         step_dest_dir = "assetroot-8a7d189e9c17186fb88b"
 
         # WHEN
-        with patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.get_manifest_from_s3",
-            return_value=test_manifest,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.download_files_from_manifests",
-            side_effect=[DownloadSummaryStatistics()],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
-            side_effect=[dest_dir, step_dest_dir],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.get_output_manifests_by_asset_root",
-            side_effect=[{step_output_root: {}}],
-        ), patch.object(Path, "stat", MagicMock(st_mtime_ns=1234512345123451)):
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.get_manifest_from_s3",
+                return_value=test_manifest,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.download_files_from_manifests",
+                side_effect=[DownloadSummaryStatistics()],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
+                side_effect=[dest_dir, step_dest_dir],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.get_output_manifests_by_asset_root",
+                side_effect=[{step_output_root: {}}],
+            ),
+            patch.object(Path, "stat", MagicMock(st_mtime_ns=1234512345123451)),
+        ):
             mock_on_downloading_files = MagicMock(return_value=True)
 
             (_, result_pathmap_rules) = self.default_asset_sync.sync_inputs(
@@ -385,28 +401,37 @@ class TestAssetSync:
         test_manifest = decode_manifest(json.dumps(test_manifest_two))
 
         # WHEN
-        with patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.get_manifest_from_s3",
-            return_value=json.dumps(test_manifest_one),
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.download_files_from_manifests",
-            side_effect=[DownloadSummaryStatistics()],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
-            return_value=dest_dir,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.get_output_manifests_by_asset_root",
-            return_value={"tmp/": [(test_manifest, "hello")]},
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.merge_asset_manifests",
-        ) as merge_manifests_mock, patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.AssetSync._ensure_disk_capacity",
-        ) as disk_capacity_mock, patch(
-            f"{deadline.__package__}.job_attachments.download._write_manifest_to_temp_file",
-            return_value="tmp_manifest",
-        ), patch("sys.platform", "linux"), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.mount_vfs_from_manifests"
-        ), patch(f"{deadline.__package__}.job_attachments.asset_sync.VFSProcessManager.find_vfs"):
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.get_manifest_from_s3",
+                return_value=json.dumps(test_manifest_one),
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.download_files_from_manifests",
+                side_effect=[DownloadSummaryStatistics()],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
+                return_value=dest_dir,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.get_output_manifests_by_asset_root",
+                return_value={"tmp/": [(test_manifest, "hello")]},
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.merge_asset_manifests",
+            ) as merge_manifests_mock,
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.AssetSync._ensure_disk_capacity",
+            ) as disk_capacity_mock,
+            patch(
+                f"{deadline.__package__}.job_attachments.download._write_manifest_to_temp_file",
+                return_value="tmp_manifest",
+            ),
+            patch("sys.platform", "linux"),
+            patch(f"{deadline.__package__}.job_attachments.asset_sync.mount_vfs_from_manifests"),
+            patch(f"{deadline.__package__}.job_attachments.asset_sync.VFSProcessManager.find_vfs"),
+        ):
             mock_on_downloading_files = MagicMock(return_value=True)
 
             (_, result_pathmap_rules) = self.default_asset_sync.sync_inputs(
@@ -478,16 +503,21 @@ class TestAssetSync:
         assert job.attachments
 
         # WHEN
-        with patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.get_manifest_from_s3",
-            return_value=test_manifest,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.download_files_from_manifests",
-            side_effect=[DownloadSummaryStatistics()],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
-            side_effect=[dest_dir],
-        ), patch.object(Path, "stat", MagicMock(st_mtime_ns=1234512345123451)):
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.get_manifest_from_s3",
+                return_value=test_manifest,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.download_files_from_manifests",
+                side_effect=[DownloadSummaryStatistics()],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
+                side_effect=[dest_dir],
+            ),
+            patch.object(Path, "stat", MagicMock(st_mtime_ns=1234512345123451)),
+        ):
             mock_on_downloading_files = MagicMock(return_value=True)
 
             with pytest.raises(AssetSyncError) as ase:
@@ -578,17 +608,23 @@ class TestAssetSync:
         )
 
         # WHEN
-        with patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.hash_file",
-            side_effect=["hash1", "hash2"],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.hash_data", side_effect=["hash3"]
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
-            side_effect=[local_root],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync._float_to_iso_datetime_string",
-            side_effect=["2023-07-13T14:35:26.123456Z"],
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.hash_file",
+                side_effect=["hash1", "hash2"],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.hash_data",
+                side_effect=["hash3"],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
+                side_effect=[local_root],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync._float_to_iso_datetime_string",
+                side_effect=["2023-07-13T14:35:26.123456Z"],
+            ),
         ):
             mock_on_uploading_files = MagicMock(return_value=True)
 
@@ -830,16 +866,21 @@ class TestAssetSync:
         }
 
         # WHEN
-        with patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.get_manifest_from_s3",
-            return_value=test_manifest,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.download_files_from_manifests",
-            return_value=DownloadSummaryStatistics(),
-        ) as mock_download_files_from_manifests, patch(
-            f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
-            side_effect=[dest_dir],
-        ), patch.object(Path, "stat", MagicMock(st_mtime_ns=1234512345123451)):
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.get_manifest_from_s3",
+                return_value=test_manifest,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.download_files_from_manifests",
+                return_value=DownloadSummaryStatistics(),
+            ) as mock_download_files_from_manifests,
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
+                side_effect=[dest_dir],
+            ),
+            patch.object(Path, "stat", MagicMock(st_mtime_ns=1234512345123451)),
+        ):
             mock_on_downloading_files = MagicMock(return_value=True)
 
             (summary_statistics, result_pathmap_rules) = self.default_asset_sync.sync_inputs(
@@ -908,22 +949,28 @@ class TestAssetSync:
         assert job.attachments
 
         # WHEN
-        with patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.get_manifest_from_s3",
-            return_value=test_manifest,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.download_files_from_manifests",
-            side_effect=[DownloadSummaryStatistics()],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
-            side_effect=[dest_dir],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.VFSProcessManager.find_vfs",
-            side_effect=VFSExecutableMissingError,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.mount_vfs_from_manifests"
-        ) as mock_mount_vfs, patch("sys.platform", "linux"), patch.object(
-            Path, "stat", MagicMock(st_mtime_ns=1234512345123451)
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.get_manifest_from_s3",
+                return_value=test_manifest,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.download_files_from_manifests",
+                side_effect=[DownloadSummaryStatistics()],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
+                side_effect=[dest_dir],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.VFSProcessManager.find_vfs",
+                side_effect=VFSExecutableMissingError,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.mount_vfs_from_manifests"
+            ) as mock_mount_vfs,
+            patch("sys.platform", "linux"),
+            patch.object(Path, "stat", MagicMock(st_mtime_ns=1234512345123451)),
         ):
             mock_on_downloading_files = MagicMock(return_value=True)
 
@@ -952,10 +999,13 @@ class TestAssetSync:
             mock_mount_vfs.assert_not_called()
 
     def test_cleanup_session_vfs_terminate_called(self, tmp_path):
-        with patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.VFSProcessManager.find_vfs",
-        ) as mock_find_vfs, patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.VFSProcessManager.kill_all_processes",
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.VFSProcessManager.find_vfs",
+            ) as mock_find_vfs,
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.VFSProcessManager.kill_all_processes",
+            ),
         ):
             self.default_asset_sync.cleanup_session(
                 session_dir=tmp_path,
@@ -999,12 +1049,15 @@ class TestAssetSync:
         dest_dir = "assetroot-27bggh78dd2b568ab123"
         local_root = str(Path(session_dir) / dest_dir)
         # WHEN
-        with patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.download_files_from_manifests",
-            side_effect=[DownloadSummaryStatistics()],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
-            side_effect=[dest_dir],
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.download_files_from_manifests",
+                side_effect=[DownloadSummaryStatistics()],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
+                side_effect=[dest_dir],
+            ),
         ):
             mock_on_downloading_files = MagicMock(return_value=True)
 
@@ -1086,20 +1139,23 @@ class TestAssetSync:
         os_env_vars: Dict[str, str] = {"AWS_PROFILE": "test-profile"}
         assert job.attachments
         # WHEN
-        with patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.get_manifest_from_s3",
-            return_value=test_manifest,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.download_files_from_manifests",
-            side_effect=[DownloadSummaryStatistics()],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
-            side_effect=[dest_dir],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.mount_vfs_from_manifests"
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.VFSProcessManager.find_vfs"
-        ), patch.object(Path, "stat", MagicMock(st_mtime_ns=1234512345123451)):
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.get_manifest_from_s3",
+                return_value=test_manifest,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.download_files_from_manifests",
+                side_effect=[DownloadSummaryStatistics()],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
+                side_effect=[dest_dir],
+            ),
+            patch(f"{deadline.__package__}.job_attachments.asset_sync.mount_vfs_from_manifests"),
+            patch(f"{deadline.__package__}.job_attachments.asset_sync.VFSProcessManager.find_vfs"),
+            patch.object(Path, "stat", MagicMock(st_mtime_ns=1234512345123451)),
+        ):
             mock_on_downloading_files = MagicMock(return_value=True)
 
             (_, result_pathmap_rules) = self.default_asset_sync.attachment_sync_inputs(
@@ -1163,15 +1219,19 @@ class TestAssetSync:
         dest_dir = "assetroot-27bggh78dd2b568ab123"
         assert job.attachments
         # WHEN
-        with patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.get_manifest_from_s3",
-            return_value=test_manifest,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
-            side_effect=[dest_dir],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.download_files_from_manifests",
-            side_effect=download_exception,
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.get_manifest_from_s3",
+                return_value=test_manifest,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
+                side_effect=[dest_dir],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.download_files_from_manifests",
+                side_effect=download_exception,
+            ),
         ):
             with pytest.raises(JobAttachmentsS3ClientError) as excinfo:
                 self.default_asset_sync.attachment_sync_inputs(
@@ -1213,19 +1273,25 @@ class TestAssetSync:
         step_output_root = "/home/outputs_roots"
         step_dest_dir = "assetroot-8a7d189e9c17186fb88b"
         # WHEN
-        with patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.get_manifest_from_s3",
-            return_value=test_manifest,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.download_files_from_manifests",
-            side_effect=[DownloadSummaryStatistics()],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
-            side_effect=[dest_dir, step_dest_dir],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.get_output_manifests_by_asset_root",
-            side_effect=[{step_output_root: {}}],
-        ), patch.object(Path, "stat", MagicMock(st_mtime_ns=1234512345123451)):
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.get_manifest_from_s3",
+                return_value=test_manifest,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.download_files_from_manifests",
+                side_effect=[DownloadSummaryStatistics()],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
+                side_effect=[dest_dir, step_dest_dir],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.get_output_manifests_by_asset_root",
+                side_effect=[{step_output_root: {}}],
+            ),
+            patch.object(Path, "stat", MagicMock(st_mtime_ns=1234512345123451)),
+        ):
             mock_on_downloading_files = MagicMock(return_value=True)
 
             (_, result_pathmap_rules) = self.default_asset_sync.attachment_sync_inputs(
@@ -1276,16 +1342,21 @@ class TestAssetSync:
         assert default_job.attachments
 
         # WHEN — no step dependencies
-        with patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.get_manifest_from_s3",
-            return_value=test_manifest,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.download_files_from_manifests",
-            side_effect=[DownloadSummaryStatistics()],
-        ) as mock_download, patch(
-            f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
-            side_effect=[dest_dir],
-        ), patch.object(Path, "stat", MagicMock(st_mtime_ns=1234512345123451)):
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.get_manifest_from_s3",
+                return_value=test_manifest,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.download_files_from_manifests",
+                side_effect=[DownloadSummaryStatistics()],
+            ) as mock_download,
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
+                side_effect=[dest_dir],
+            ),
+            patch.object(Path, "stat", MagicMock(st_mtime_ns=1234512345123451)),
+        ):
             self.default_asset_sync.attachment_sync_inputs(
                 s3_settings,
                 default_job.attachments,
@@ -1336,28 +1407,37 @@ class TestAssetSync:
         assert job.attachments
         test_manifest = decode_manifest(json.dumps(test_manifest_two))
         # WHEN
-        with patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.get_manifest_from_s3",
-            return_value=json.dumps(test_manifest_one),
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.download_files_from_manifests",
-            side_effect=[DownloadSummaryStatistics()],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
-            return_value=dest_dir,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.get_output_manifests_by_asset_root",
-            return_value={"tmp/": [(test_manifest, "hello")]},
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.merge_asset_manifests",
-        ) as merge_manifests_mock, patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.AssetSync._ensure_disk_capacity",
-        ) as disk_capacity_mock, patch(
-            f"{deadline.__package__}.job_attachments.download._write_manifest_to_temp_file",
-            return_value="tmp_manifest",
-        ), patch("sys.platform", "linux"), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.mount_vfs_from_manifests"
-        ), patch(f"{deadline.__package__}.job_attachments.asset_sync.VFSProcessManager.find_vfs"):
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.get_manifest_from_s3",
+                return_value=json.dumps(test_manifest_one),
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.download_files_from_manifests",
+                side_effect=[DownloadSummaryStatistics()],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
+                return_value=dest_dir,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.get_output_manifests_by_asset_root",
+                return_value={"tmp/": [(test_manifest, "hello")]},
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.merge_asset_manifests",
+            ) as merge_manifests_mock,
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.AssetSync._ensure_disk_capacity",
+            ) as disk_capacity_mock,
+            patch(
+                f"{deadline.__package__}.job_attachments.download._write_manifest_to_temp_file",
+                return_value="tmp_manifest",
+            ),
+            patch("sys.platform", "linux"),
+            patch(f"{deadline.__package__}.job_attachments.asset_sync.mount_vfs_from_manifests"),
+            patch(f"{deadline.__package__}.job_attachments.asset_sync.VFSProcessManager.find_vfs"),
+        ):
             mock_on_downloading_files = MagicMock(return_value=True)
 
             (_, result_pathmap_rules) = self.default_asset_sync.attachment_sync_inputs(
@@ -1426,16 +1506,21 @@ class TestAssetSync:
         os_env_vars: Dict[str, str] = {"AWS_PROFILE": "test-profile"}
         assert job.attachments
         # WHEN
-        with patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.get_manifest_from_s3",
-            return_value=test_manifest,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.download_files_from_manifests",
-            side_effect=[DownloadSummaryStatistics()],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
-            side_effect=[dest_dir],
-        ), patch.object(Path, "stat", MagicMock(st_mtime_ns=1234512345123451)):
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.get_manifest_from_s3",
+                return_value=test_manifest,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.download_files_from_manifests",
+                side_effect=[DownloadSummaryStatistics()],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
+                side_effect=[dest_dir],
+            ),
+            patch.object(Path, "stat", MagicMock(st_mtime_ns=1234512345123451)),
+        ):
             mock_on_downloading_files = MagicMock(return_value=True)
 
             with pytest.raises(AssetSyncError) as ase:
@@ -1492,19 +1577,24 @@ class TestAssetSync:
         }
         path_write_local_input_manifest = tmp_path.joinpath("manifest/hash_manifest")
 
-        with patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.get_manifest_from_s3",
-            return_value=test_manifest,
-        ) as mock_get_manifest_from_s3, patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.merge_asset_manifests",
-            return_value=test_manifest,
-        ) as mock_merge_asset_manifests, patch(
-            f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
-            side_effect=[dest_dir],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.S3AssetUploader._write_local_input_manifest",
-            return_value=path_write_local_input_manifest,
-        ) as mock__write_local_input_manifest:
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.get_manifest_from_s3",
+                return_value=test_manifest,
+            ) as mock_get_manifest_from_s3,
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.merge_asset_manifests",
+                return_value=test_manifest,
+            ) as mock_merge_asset_manifests,
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
+                side_effect=[dest_dir],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.S3AssetUploader._write_local_input_manifest",
+                return_value=path_write_local_input_manifest,
+            ) as mock__write_local_input_manifest,
+        ):
             merged_manifests_by_root = self.default_asset_sync._aggregate_asset_root_manifests(
                 session_dir=tmp_path,
                 s3_settings=default_job_attachment_s3_settings,
@@ -1573,16 +1663,21 @@ class TestAssetSync:
         }
 
         # WHEN
-        with patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.get_manifest_from_s3",
-            return_value=test_manifest,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.download_files_from_manifests",
-            return_value=DownloadSummaryStatistics(),
-        ) as mock_download_files_from_manifests, patch(
-            f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
-            side_effect=[dest_dir],
-        ), patch.object(Path, "stat", MagicMock(st_mtime_ns=1234512345123451)):
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.get_manifest_from_s3",
+                return_value=test_manifest,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.download_files_from_manifests",
+                return_value=DownloadSummaryStatistics(),
+            ) as mock_download_files_from_manifests,
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
+                side_effect=[dest_dir],
+            ),
+            patch.object(Path, "stat", MagicMock(st_mtime_ns=1234512345123451)),
+        ):
             mock_on_downloading_files = MagicMock(return_value=True)
 
             (summary_statistics, result_pathmap_rules) = (
@@ -1654,22 +1749,28 @@ class TestAssetSync:
         assert job.attachments
 
         # WHEN
-        with patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.get_manifest_from_s3",
-            return_value=test_manifest,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.download_files_from_manifests",
-            side_effect=[DownloadSummaryStatistics()],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
-            side_effect=[dest_dir],
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.VFSProcessManager.find_vfs",
-            side_effect=VFSExecutableMissingError,
-        ), patch(
-            f"{deadline.__package__}.job_attachments.asset_sync.mount_vfs_from_manifests"
-        ) as mock_mount_vfs, patch("sys.platform", "linux"), patch.object(
-            Path, "stat", MagicMock(st_mtime_ns=1234512345123451)
+        with (
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.get_manifest_from_s3",
+                return_value=test_manifest,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.download_files_from_manifests",
+                side_effect=[DownloadSummaryStatistics()],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync._get_unique_dest_dir_name",
+                side_effect=[dest_dir],
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.VFSProcessManager.find_vfs",
+                side_effect=VFSExecutableMissingError,
+            ),
+            patch(
+                f"{deadline.__package__}.job_attachments.asset_sync.mount_vfs_from_manifests"
+            ) as mock_mount_vfs,
+            patch("sys.platform", "linux"),
+            patch.object(Path, "stat", MagicMock(st_mtime_ns=1234512345123451)),
         ):
             mock_on_downloading_files = MagicMock(return_value=True)
 

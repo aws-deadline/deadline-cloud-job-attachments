@@ -170,8 +170,9 @@ class TestGetLongPathCompatiblePath:
         """A long path gets the prefix regardless of the registry setting."""
         long_path = self._long_path()
 
-        with patch.object(sys, "platform", "win32"), patch(
-            self._REGISTRY_CHECK, return_value=registry_enabled
+        with (
+            patch.object(sys, "platform", "win32"),
+            patch(self._REGISTRY_CHECK, return_value=registry_enabled),
         ):
             result = _get_long_path_compatible_path(long_path)
 
@@ -187,8 +188,9 @@ class TestGetLongPathCompatiblePath:
         """An already-prefixed path is not prefixed twice."""
         already_prefixed = WINDOWS_UNC_PATH_STRING_PREFIX + self._long_path()
 
-        with patch.object(sys, "platform", "win32"), patch(
-            self._REGISTRY_CHECK, return_value=registry_enabled
+        with (
+            patch.object(sys, "platform", "win32"),
+            patch(self._REGISTRY_CHECK, return_value=registry_enabled),
         ):
             result = _get_long_path_compatible_path(already_prefixed)
 
@@ -198,8 +200,9 @@ class TestGetLongPathCompatiblePath:
         """Paths under the limit are left alone."""
         short_path = r"C:\short\path.txt"
 
-        with patch.object(sys, "platform", "win32"), patch(
-            self._REGISTRY_CHECK, return_value=False
+        with (
+            patch.object(sys, "platform", "win32"),
+            patch(self._REGISTRY_CHECK, return_value=False),
         ):
             result = _get_long_path_compatible_path(short_path)
 
@@ -230,8 +233,9 @@ class TestGetLongPathCompatiblePath:
         path = f"C:\\assets\\project\\.\\shared\\{padding}\\scene.ma"
         assert len(path) + TEMP_DOWNLOAD_ADDED_CHARS_LENGTH >= WINDOWS_MAX_PATH_LENGTH
 
-        with patch.object(sys, "platform", "win32"), patch(
-            self._REGISTRY_CHECK, return_value=False
+        with (
+            patch.object(sys, "platform", "win32"),
+            patch(self._REGISTRY_CHECK, return_value=False),
         ):
             result = _get_long_path_compatible_path(path)
 
@@ -270,8 +274,9 @@ class TestGetLongPathCompatiblePath:
         """
         path = path_template.format(padding="a" * WINDOWS_MAX_PATH_LENGTH)
 
-        with patch.object(sys, "platform", "win32"), patch(
-            self._REGISTRY_CHECK, return_value=False
+        with (
+            patch.object(sys, "platform", "win32"),
+            patch(self._REGISTRY_CHECK, return_value=False),
         ):
             with pytest.raises(ValueError, match=r"\.\."):
                 _get_long_path_compatible_path(path)
@@ -285,8 +290,9 @@ class TestGetLongPathCompatiblePath:
         """
         path = "C:\\assets\\project\\..\\shared\\scene.ma"
 
-        with patch.object(sys, "platform", "win32"), patch(
-            self._REGISTRY_CHECK, return_value=False
+        with (
+            patch.object(sys, "platform", "win32"),
+            patch(self._REGISTRY_CHECK, return_value=False),
         ):
             assert _get_long_path_compatible_path(path) == Path(path)
 
@@ -301,8 +307,9 @@ class TestGetLongPathCompatiblePath:
         """
         path = "relative\\project\\" + ("a" * WINDOWS_MAX_PATH_LENGTH) + "\\scene.ma"
 
-        with patch.object(sys, "platform", "win32"), patch(
-            self._REGISTRY_CHECK, return_value=False
+        with (
+            patch.object(sys, "platform", "win32"),
+            patch(self._REGISTRY_CHECK, return_value=False),
         ):
             assert _get_long_path_compatible_path(path) == Path(path)
 
@@ -316,8 +323,9 @@ class TestGetLongPathCompatiblePath:
         padding = "a" * WINDOWS_MAX_PATH_LENGTH
         path = f"\\\\studio-nas\\projects\\.\\b\\{padding}\\scene.aep"
 
-        with patch.object(sys, "platform", "win32"), patch(
-            self._REGISTRY_CHECK, return_value=False
+        with (
+            patch.object(sys, "platform", "win32"),
+            patch(self._REGISTRY_CHECK, return_value=False),
         ):
             result = _get_long_path_compatible_path(path)
 
@@ -341,8 +349,9 @@ class TestGetLongPathCompatiblePath:
         """
         network_path = self._long_network_path()
 
-        with patch.object(sys, "platform", "win32"), patch(
-            self._REGISTRY_CHECK, return_value=registry_enabled
+        with (
+            patch.object(sys, "platform", "win32"),
+            patch(self._REGISTRY_CHECK, return_value=registry_enabled),
         ):
             result = _get_long_path_compatible_path(network_path)
 
@@ -354,8 +363,9 @@ class TestGetLongPathCompatiblePath:
         r"""An already \\?\UNC\ prefixed path is not prefixed twice."""
         already_prefixed = WINDOWS_UNC_DEVICE_PATH_STRING_PREFIX + self._long_network_path()[2:]
 
-        with patch.object(sys, "platform", "win32"), patch(
-            self._REGISTRY_CHECK, return_value=registry_enabled
+        with (
+            patch.object(sys, "platform", "win32"),
+            patch(self._REGISTRY_CHECK, return_value=registry_enabled),
         ):
             result = _get_long_path_compatible_path(already_prefixed)
 
@@ -365,8 +375,9 @@ class TestGetLongPathCompatiblePath:
         r"""Network paths under the limit are left alone."""
         short_network_path = r"\\studio-nas\projects\scene.aep"
 
-        with patch.object(sys, "platform", "win32"), patch(
-            self._REGISTRY_CHECK, return_value=False
+        with (
+            patch.object(sys, "platform", "win32"),
+            patch(self._REGISTRY_CHECK, return_value=False),
         ):
             result = _get_long_path_compatible_path(short_network_path)
 
@@ -384,8 +395,9 @@ class TestGetLongPathCompatiblePath:
             WINDOWS_MAX_PATH_LENGTH - TEMP_DOWNLOAD_ADDED_CHARS_LENGTH
         )
 
-        with patch.object(sys, "platform", "win32"), patch(
-            self._REGISTRY_CHECK, return_value=registry_enabled
+        with (
+            patch.object(sys, "platform", "win32"),
+            patch(self._REGISTRY_CHECK, return_value=registry_enabled),
         ):
             result = _get_long_path_compatible_path(long_forward_slash_path)
 

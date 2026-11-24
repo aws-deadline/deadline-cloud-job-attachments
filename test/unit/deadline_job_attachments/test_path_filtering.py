@@ -537,9 +537,12 @@ class TestInputDownloaderFiltering:
         root = str(tmp_path / "inputs")
         os.makedirs(root, exist_ok=True)
 
-        with patch(
-            "deadline.job_attachments.download.get_job_input_paths_by_asset_root"
-        ) as mock_get, patch("deadline.job_attachments.download.download_files") as mock_download:
+        with (
+            patch(
+                "deadline.job_attachments.download.get_job_input_paths_by_asset_root"
+            ) as mock_get,
+            patch("deadline.job_attachments.download.download_files") as mock_download,
+        ):
             group = ManifestPathGroup()
             group.files_by_hash_alg[HashAlgorithm.XXH128] = [
                 ManifestPathv2023_03_03(path="a.exr", hash="abc123", size=100, mtime=1234000000)
