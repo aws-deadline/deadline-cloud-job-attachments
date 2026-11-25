@@ -35,7 +35,7 @@ classifiers = [
 dependencies = [
   "boto3 >= 1.42.29",
   "typing_extensions >= 4.8",
-  "xxhash >= 3.4,< 3.9",
+  "xxhash >= 3.4,< 4.1",
   "pywin32 >= 307; sys_platform == 'win32'",
   "psutil >= 7.0.0"
 ]
