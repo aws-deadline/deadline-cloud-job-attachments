@@ -1,3 +1,12 @@
+## 0.2.0 (2026-11-25)
+
+### BREAKING CHANGES
+* Python 3.8 is no longer supported. The package now requires Python 3.9 or later (up to 3.14), so upgrade your Python environment before installing this release. (#110)
+* `VFSProcessManager.build_launch_command()` now returns the launch command as a `List[str]` with one element per argument instead of a single string. If your code uses the return value as a string, update it to handle a list. (#108)
+
+### Bug Fixes
+* VFS mount points and prefixes that contain spaces or special characters now reach the VFS executable unchanged. The VFS process now starts without a shell. (#108)
+* VFS launch and unmount commands now look for `sudo` only in fixed system directories (`/run/wrappers/bin`, `/usr/bin`, `/bin`). Before, they used whichever `sudo` came first on the calling process's `PATH`. (#108)
 ## 0.1.6 (2026-11-03)
 
 ### Bug Fixes
