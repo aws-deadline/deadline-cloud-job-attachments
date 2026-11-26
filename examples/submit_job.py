@@ -40,7 +40,11 @@ def process_job_attachments(farm_id, queue_id, inputs, outputDir, deadline_clien
     asset_manager = S3AssetManager(
         farm_id=farm_id,
         queue_id=queue_id,
-        job_attachment_settings=JobAttachmentS3Settings(**queue["jobAttachmentSettings"]),
+        # Pass only the fields used, so fields added to the queue settings later are ignored.
+        job_attachment_settings=JobAttachmentS3Settings(
+            s3BucketName=queue["jobAttachmentSettings"]["s3BucketName"],
+            rootPrefix=queue["jobAttachmentSettings"]["rootPrefix"],
+        ),
         session=session,
     )
     upload_group = asset_manager.prepare_paths_for_upload(

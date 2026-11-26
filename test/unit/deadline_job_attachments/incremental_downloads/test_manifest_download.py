@@ -10,6 +10,7 @@ from pathlib import Path, PurePosixPath
 from datetime import datetime
 
 import boto3
+import pytest
 from moto import mock_aws
 
 from deadline.job_attachments.asset_manifests.hash_algorithms import HashAlgorithm, hash_data
@@ -181,8 +182,16 @@ def generate_fake_job_with_output_manifest(
     session["sessionActions"] = [session_action]
 
 
+@pytest.mark.parametrize(
+    "extra_settings",
+    [
+        pytest.param({}, id="known-fields"),
+        # The service may add fields to the queue's job attachment settings later.
+        pytest.param({"someNewField": {"nested": [1]}}, id="extra-field"),
+    ],
+)
 @mock_aws
-def test_manifest_and_output_downloads(tmp_path):
+def test_manifest_and_output_downloads(tmp_path, extra_settings):
     """
     This test uses moto3 to mock a bunch of job attachment output data in S3, and then
     calls the sequence of functions used in incremental downloads
@@ -201,7 +210,11 @@ def test_manifest_and_output_downloads(tmp_path):
     # Create queue structure
     queue = {
         "queueId": queue_id,
-        "jobAttachmentSettings": {"s3BucketName": bucket_name, "rootPrefix": root_prefix},
+        "jobAttachmentSettings": {
+            "s3BucketName": bucket_name,
+            "rootPrefix": root_prefix,
+            **extra_settings,
+        },
     }
 
     jobs: list = []

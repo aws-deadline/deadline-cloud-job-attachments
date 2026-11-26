@@ -10,6 +10,7 @@ __all__ = [
 
 from typing import Any, Callable, DefaultDict, Optional
 from datetime import datetime, timezone
+import logging
 import re
 import os
 import concurrent.futures
@@ -78,6 +79,8 @@ in deadline.job_attachments.download and replace them with more general and flex
 
 SESSION_ACTION_ID_FROM_KEY_RE = re.compile(r"(sessionaction-[^/-]+-[^/-]+)/")
 
+logger = logging.getLogger("deadline.job_attachments.download")
+
 
 def _add_output_manifests_from_s3(
     farm_id: str,
@@ -109,7 +112,11 @@ def _add_output_manifests_from_s3(
     if "attachments" not in job:
         return
 
-    s3_settings = JobAttachmentS3Settings(**queue["jobAttachmentSettings"])
+    # Pass only the fields used, so fields added to the queue settings later are ignored.
+    s3_settings = JobAttachmentS3Settings(
+        s3BucketName=queue["jobAttachmentSettings"]["s3BucketName"],
+        rootPrefix=queue["jobAttachmentSettings"]["rootPrefix"],
+    )
 
     # Filter the session action list to exclude any that already contain manifests,
     # then return early if the result is empty.
@@ -314,6 +321,8 @@ def _download_all_manifests_with_absolute_paths(
     output_unmapped_paths: dict[str, list[str]],
     boto3_session_for_s3: boto3.Session,
     print_function_callback: Callable[[Any], None] = lambda msg: None,
+    *,
+    output_missing_manifest_job_ids: Optional[set[str]] = None,
 ) -> list[tuple[datetime, BaseAssetManifest]]:
     """
     Downloads all the manifest files that are in the session_actions of job_sessions, and uses the rootPath
@@ -330,9 +339,17 @@ def _download_all_manifests_with_absolute_paths(
         output_unmapped_paths: A mapping from the job id to a list of all the paths that were not mapped
             and therefore will not be downloaded.
         print_function_callback: Callback for printing output to the terminal or log.
+        output_missing_manifest_job_ids: If None (the default), any error downloading a manifest is raised.
+            If a set, a manifest that S3 reports as not found (404) or forbidden (403, which S3 also
+            returns for a missing key when the caller can't list the bucket) is skipped, and its job id
+            is added to this set. If every manifest returns 403, the first 403 error is raised, because
+            that is a permissions problem rather than missing manifests. A 403 on only some manifests is
+            skipped like a 404, so a partial permissions problem doesn't fail the call; callers should
+            report the job ids in this set to the user. Other errors are always raised.
 
     Returns:
         A list of BaseAssetManifest objects containing local absolute file paths sorted by the last_modified timestamp.
+        Skipped manifests are left out of the list.
     """
     # Get the list of (rootPath, manifest_s3_key) tuples to download from S3.
     manifests_to_download: list[tuple[Optional[_PathMappingRuleApplier], str, str, str]] = (
@@ -356,28 +373,58 @@ def _download_all_manifests_with_absolute_paths(
 
     max_workers = S3_DOWNLOAD_MAX_CONCURRENCY
     print_function_callback(f"Using {max_workers} threads")
+    # (index, job_id, error) for each manifest skipped as missing or forbidden
+    skipped_manifests: list[tuple[int, str, JobAttachmentsS3ClientError]] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = []
+        futures: dict[concurrent.futures.Future, tuple[int, str, str]] = {}
         for index, (path_mapping_rule_applier, job_id, root_path, manifest_s3_key) in enumerate(
             manifests_to_download
         ):
-            futures.append(
-                executor.submit(
-                    _download_manifest_and_make_paths_absolute,
-                    index,
-                    queue,
-                    job_id,
-                    root_path,
-                    manifest_s3_key,
-                    path_mapping_rule_applier,
-                    boto3_session_for_s3,
-                    downloaded_manifests,
-                    unmapped_paths,
-                )
+            future = executor.submit(
+                _download_manifest_and_make_paths_absolute,
+                index,
+                queue,
+                job_id,
+                root_path,
+                manifest_s3_key,
+                path_mapping_rule_applier,
+                boto3_session_for_s3,
+                downloaded_manifests,
+                unmapped_paths,
             )
+            futures[future] = (index, job_id, manifest_s3_key)
         # surfaces any exceptions in the thread
         for future in concurrent.futures.as_completed(futures):
-            future.result()
+            try:
+                future.result()
+            except JobAttachmentsS3ClientError as e:
+                if output_missing_manifest_job_ids is None or e.status_code not in (403, 404):
+                    raise
+                index, job_id, _ = futures[future]
+                skipped_manifests.append((index, job_id, e))
+
+    if skipped_manifests and output_missing_manifest_job_ids is not None:
+        skipped_manifests.sort(key=lambda item: item[0])
+        if len(skipped_manifests) == len(manifests_to_download) and all(
+            e.status_code == 403 for _, _, e in skipped_manifests
+        ):
+            # Every manifest was forbidden: report the permissions problem instead of N missing manifests.
+            raise skipped_manifests[0][2]
+        # Warn only once the manifests are known to be skipped, not before the all-403 check.
+        for index, job_id, skip_error in skipped_manifests:
+            # Name the job and session action only; the error text includes the bucket key.
+            m = SESSION_ACTION_ID_FROM_KEY_RE.search(manifests_to_download[index][3])
+            session_action_id = m[1] if m else "unknown session action"
+            reason = (
+                "output manifest not found"
+                if skip_error.status_code == 404
+                else "output manifest not found or access denied"
+            )
+            message = f"{reason} for job {job_id}, {session_action_id}. Skipping it."
+            logger.warning(message)
+            print_function_callback(f"Warning: {message}")
+        output_missing_manifest_job_ids.update(job_id for _, job_id, _ in skipped_manifests)
+        downloaded_manifests = [item for item in downloaded_manifests if item is not None]
 
     # Transform the unmapped paths into the output, grouping by job id
     for job_id, unmapped_path in unmapped_paths:
@@ -627,7 +674,11 @@ def _download_manifest_paths(
         on_downloading_files: A callback to handle progress messages and cancelation.
         print_function_callback: Callback for printing output to the terminal or log.
     """
-    s3_settings = JobAttachmentS3Settings(**queue["jobAttachmentSettings"])
+    # Pass only the fields used, so fields added to the queue settings later are ignored.
+    s3_settings = JobAttachmentS3Settings(
+        s3BucketName=queue["jobAttachmentSettings"]["s3BucketName"],
+        rootPrefix=queue["jobAttachmentSettings"]["rootPrefix"],
+    )
     s3_client = get_s3_client(session=boto3_session_for_s3)
     max_workers = _get_num_download_workers()
 
