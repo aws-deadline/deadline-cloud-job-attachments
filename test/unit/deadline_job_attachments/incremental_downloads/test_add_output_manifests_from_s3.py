@@ -15,6 +15,7 @@ from typing import Any
 from unittest.mock import patch
 
 import boto3
+import pytest
 from moto import mock_aws
 
 from deadline.job_attachments._incremental_downloads._manifest_s3_downloads import (
@@ -232,8 +233,16 @@ def validate_manifest_keys_do_not_have_prefix(
                 )
 
 
+@pytest.mark.parametrize(
+    "extra_settings",
+    [
+        pytest.param({}, id="known-fields"),
+        # The service may add fields to the queue's job attachment settings later.
+        pytest.param({"someNewField": {"nested": [1]}}, id="extra-field"),
+    ],
+)
 @mock_aws
-def test_add_output_manifests_from_s3_fill_in_missing_manifests():
+def test_add_output_manifests_from_s3_fill_in_missing_manifests(extra_settings):
     """
     Test that _add_output_manifests_from_s3 correctly fills in missing manifest information from S3.
 
@@ -262,7 +271,11 @@ def test_add_output_manifests_from_s3_fill_in_missing_manifests():
     # Create queue structure
     queue = {
         "queueId": queue_id,
-        "jobAttachmentSettings": {"s3BucketName": bucket_name, "rootPrefix": root_prefix},
+        "jobAttachmentSettings": {
+            "s3BucketName": bucket_name,
+            "rootPrefix": root_prefix,
+            **extra_settings,
+        },
     }
 
     # Generate session actions missing "manifests" fields
